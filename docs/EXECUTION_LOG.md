@@ -9,7 +9,7 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 |---|---|---|---|---|
 | T1 | Repository scaffolding | DONE | 2026-09-27 | pnpm workspace + app stubs; `pnpm lint` & `pnpm test` pass |
 | T2 | Docker Compose + dev tooling | DONE | 2026-09-27 | compose dev env (api/web/tunnel placeholder, volumes, healthchecks); verified boot + persistence |
-| T3 | Drizzle schema + initial migration + seed | PENDING | | |
+| T3 | Drizzle schema + initial migration + seed | DONE | 2026-09-27 | schema verbatim from DATA_MODEL; drizzle.config.ts + drizzle/ migration; client.ts (WAL/FK ON/busy_timeout/NORMAL, zod DATABASE_PATH); idempotent seed (2 users, 1 list w/ OWNER+EDITOR, 3 categories incl Other, 3 items, 4 observations); 6 vitest tests; lint+test green |
 | T4 | Fastify bootstrap | PENDING | | |
 | T5 | Auth module | PENDING | | |
 | T6 | Lists CRUD + members/permissions | PENDING | | |
@@ -48,3 +48,5 @@ Format (append newest last): `YYYY-MM-DD | Tn | model | summary`
 - 2026-09-27 | T1 | z-ai/glm-5.3-flash | scaffolding: pnpm-workspace.yaml, root package.json (dev/build/test/lint scripts), biome.json, tsconfig.base.json (strict), .editorconfig, .env.example, docker-compose.yml placeholder, stubs in apps/api, apps/web, packages/shared (+1 smoke test in shared); lint+test+build green
 - 2026-09-27 | T1 | openrouter/z-ai/glm-5.3-flash | completed and committed (c042a92)
 - 2026-09-27 | T2 | z-ai/glm-5.3-flash | docker-compose.yml (api node:20-alpine + healthcheck, web placeholder dev server proxying /api & /static, tunnel profile placeholder, data+uploads volumes, .env flow), placeholder src/dev-server.mjs in api & web (replaced in T4/T14), README dev-env section; verified `docker compose up` boots healthy, /api proxy works, data survives restart; lint+test green
+- 2026-09-27 | T2 | openrouter/z-ai/glm-5.3-flash | completed and committed (7cf3b01)
+- 2026-09-27 | T3 | openrouter/z-ai/glm-5.3-flash | db layer: apps/api/src/db/schema.ts (verbatim from DATA_MODEL), client.ts (pragmas WAL/foreign_keys/busy_timeout/synchronous + zod-validated DATABASE_PATH), migrate.ts (runtime migrator for tests/seed), drizzle.config.ts + generated drizzle/0000 migration (8 tables, indexes, FK restrict on items.category_id); scripts at apps/api/scripts/seed.ts (idempotent per-entity get-or-create; exports seedDatabase(db) for tests) wired as pnpm --filter api db:generate/db:migrate/db:seed; 6 vitest tests (migrate applies, FK rejected, cascade/restrict, seed counts + idempotency); verified fresh-db migrate+seed+re-seed via CLI; node-gyp added to root devDeps (better-sqlite3 13.0.3 has no prebuilt for local Node 26, compiles fine); decision: seed lives under apps/api/scripts (run via filter), not root scripts/
