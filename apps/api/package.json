@@ -4,25 +4,36 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'api dev server arrives in T4' && exit 0",
-    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc && node scripts/bundle.mjs",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "bundle": "node scripts/bundle.mjs"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "5.6.3",
     "vitest": "2.1.9"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/jwt": "^10.2.2",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/static": "^10.1.5",
+    "@grocery/shared": "workspace:*",
     "@paralleldrive/cuid2": "^2.2.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.4",
     "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
     "zod": "^4.6.5"
   }
 }
