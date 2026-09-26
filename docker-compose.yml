@@ -1,4 +1,52 @@
-# Placeholder — replaced in T2 (Docker Compose + dev tooling).
-# Planned services: api (node:20-alpine), web (Vite dev server), tunnel (cloudflared).
-# SQLite runs in-process via better-sqlite3; no database container.
-services: {}
+# Dev environment (T2). SQLite runs in-process in the api container — no db service.
+# Prod images arrive in T21; the cloudflared tunnel service arrives in T22 (profile "tunnel").
+services:
+  api:
+    image: node:20-alpine
+    working_dir: /app
+    command: node --watch src/dev-server.mjs
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (see .env.example)}
+      DATABASE_PATH: ${DATABASE_PATH:-/data/grocery.db}
+      UPLOADS_PATH: ${UPLOADS_PATH:-/data/images}
+    volumes:
+      - ./apps/api:/app
+      - data:/data
+      - uploads:/data/images
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  web:
+    image: node:20-alpine
+    working_dir: /app
+    command: node src/dev-server.mjs
+    environment:
+      WEB_PORT: ${WEB_PORT:-5173}
+      API_HOST: api
+      API_PORT: ${PORT:-3000}
+    volumes:
+      - ./apps/web:/app
+    ports:
+      - '${WEB_PORT:-5173}:5173'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  tunnel:
+    profiles: ['tunnel']
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - web
+
+volumes:
+  data:
+  uploads:

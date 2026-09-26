@@ -51,6 +51,22 @@ OpenRouter), is verified (`pnpm lint` + `pnpm test`), and lands as exactly one c
 Progress lives in `docs/EXECUTION_LOG.md`; the per-task prompt is in `docs/EXECUTION_PROMPT.md`.
 Requires: `opencode` CLI, pnpm (`corepack enable`), Docker (from T2).
 
+## Dev environment (Docker)
+
+```bash
+cp .env.example .env       # set JWT_SECRET (see .env flow below)
+docker compose up          # boots api (node:20-alpine, tsx-watch style) + web (dev server)
+```
+
+- `web` (http://localhost:5173) proxies `/api` and `/static` to the `api` service — the same
+  topology as production nginx (T21).
+- Volumes `data` (`/data/grocery.db`) and `uploads` (`/data/images`) persist across restarts.
+- `.env` flow: `docker-compose.yml` reads `JWT_SECRET`, `PORT`, `DATABASE_PATH`,
+  `UPLOADS_PATH`, `WEB_PORT`, `TUNNEL_TOKEN` from `.env` (gitignored; template in
+  `.env.example`). Copy it once; never commit `.env`.
+- The `tunnel` service is a placeholder until T22 — start it explicitly with
+  `docker compose --profile tunnel up` after setting `TUNNEL_TOKEN`.
+
 ## Roadmap
 
 26 tasks in 4 phases — see `docs/TASKS.md` for details and each task's Definition of Done:

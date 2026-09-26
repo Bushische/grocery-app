@@ -8,7 +8,7 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 | Task | Title | Status | Date | Notes |
 |---|---|---|---|---|
 | T1 | Repository scaffolding | DONE | 2026-09-27 | pnpm workspace + app stubs; `pnpm lint` & `pnpm test` pass |
-| T2 | Docker Compose + dev tooling | PENDING | | |
+| T2 | Docker Compose + dev tooling | DONE | 2026-09-27 | compose dev env (api/web/tunnel placeholder, volumes, healthchecks); verified boot + persistence |
 | T3 | Drizzle schema + initial migration + seed | PENDING | | |
 | T4 | Fastify bootstrap | PENDING | | |
 | T5 | Auth module | PENDING | | |
@@ -46,3 +46,5 @@ Format (append newest last): `YYYY-MM-DD | Tn | model | summary`
 - (no sessions yet)
 - 2026-09-27 | T1 | z-ai/glm-5.3-flash | agent session exited with an error — task left IN_PROGRESS
 - 2026-09-27 | T1 | z-ai/glm-5.3-flash | scaffolding: pnpm-workspace.yaml, root package.json (dev/build/test/lint scripts), biome.json, tsconfig.base.json (strict), .editorconfig, .env.example, docker-compose.yml placeholder, stubs in apps/api, apps/web, packages/shared (+1 smoke test in shared); lint+test+build green
+- 2026-09-27 | T1 | openrouter/z-ai/glm-5.3-flash | completed and committed (c042a92)
+- 2026-09-27 | T2 | z-ai/glm-5.3-flash | docker-compose.yml (api node:20-alpine + healthcheck, web placeholder dev server proxying /api & /static, tunnel profile placeholder, data+uploads volumes, .env flow), placeholder src/dev-server.mjs in api & web (replaced in T4/T14), README dev-env section; verified `docker compose up` boots healthy, /api proxy works, data survives restart; lint+test green
