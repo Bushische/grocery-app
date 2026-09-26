@@ -13,7 +13,7 @@ Progress lives in `docs/EXECUTION_LOG.md` (single source of truth for "what is d
 ./scripts/run-next-task.sh              # execute the next PENDING task with GLM-5.3-flash
 ./scripts/run-next-task.sh T8           # (re)execute a specific task
 ./scripts/run-next-task.sh --loop       # keep spawning fresh agents until failure or all DONE
-OPENCODE_MODEL=z-ai/glm-5.3-flash ./scripts/run-next-task.sh   # model override (default is this)
+OPENCODE_MODEL=openrouter/z-ai/glm-5.3-flash ./scripts/run-next-task.sh   # model override (default is this)
 ```
 What the script does per task:
 1. Marks the next `PENDING` task as `IN_PROGRESS` in the log.

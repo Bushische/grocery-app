@@ -4,13 +4,13 @@
 #   ./scripts/run-next-task.sh          # next PENDING task, one shot
 #   ./scripts/run-next-task.sh T8       # (re)execute a specific task
 #   ./scripts/run-next-task.sh --loop   # loop until failure or all tasks DONE
-#   OPENCODE_MODEL=z-ai/glm-5.3-flash ./scripts/run-next-task.sh   # default model
+#   OPENCODE_MODEL=openrouter/z-ai/glm-5.3-flash ./scripts/run-next-task.sh   # default model
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 LOG="docs/EXECUTION_LOG.md"
 PROMPT_DOC="docs/EXECUTION_PROMPT.md"
-MODEL="${OPENCODE_MODEL:-z-ai/glm-5.3-flash}"
+MODEL="${OPENCODE_MODEL:-openrouter/z-ai/glm-5.3-flash}"
 
 get_next_task() {
   awk -F'|' '/^\| T[0-9]/ && /\| PENDING \|/ { gsub(/^ +| +$/, "", $2); print $2; exit }' "$LOG"
