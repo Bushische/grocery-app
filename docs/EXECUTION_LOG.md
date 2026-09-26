@@ -7,7 +7,7 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 
 | Task | Title | Status | Date | Notes |
 |---|---|---|---|---|
-| T1 | Repository scaffolding | IN_PROGRESS | | |
+| T1 | Repository scaffolding | DONE | 2026-09-27 | pnpm workspace + app stubs; `pnpm lint` & `pnpm test` pass |
 | T2 | Docker Compose + dev tooling | PENDING | | |
 | T3 | Drizzle schema + initial migration + seed | PENDING | | |
 | T4 | Fastify bootstrap | PENDING | | |
@@ -45,3 +45,4 @@ Format (append newest last): `YYYY-MM-DD | Tn | model | summary`
 
 - (no sessions yet)
 - 2026-09-27 | T1 | z-ai/glm-5.3-flash | agent session exited with an error — task left IN_PROGRESS
+- 2026-09-27 | T1 | z-ai/glm-5.3-flash | scaffolding: pnpm-workspace.yaml, root package.json (dev/build/test/lint scripts), biome.json, tsconfig.base.json (strict), .editorconfig, .env.example, docker-compose.yml placeholder, stubs in apps/api, apps/web, packages/shared (+1 smoke test in shared); lint+test+build green

@@ -1,0 +1,4 @@
+# Placeholder — replaced in T2 (Docker Compose + dev tooling).
+# Planned services: api (node:20-alpine), web (Vite dev server), tunnel (cloudflared).
+# SQLite runs in-process via better-sqlite3; no database container.
+services: {}
