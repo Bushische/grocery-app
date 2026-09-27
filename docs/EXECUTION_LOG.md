@@ -49,6 +49,7 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 | T37 | Self-healing default "Other" category | PENDING | | |
 | T38 | Uploads writability self-check at api boot | PENDING | | |
 | T39 | "To buy" section header statistics, client-derived | PENDING | | |
+| T40 | Rename list from the overlay menu | PENDING | | |
 
 ## Rules
 - One task per agent session; one commit per task (made by the orchestrator after verification).

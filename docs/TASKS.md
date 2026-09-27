@@ -481,3 +481,18 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   create/delete update it; list switch + back recalculates from server data; old counts line
   gone; tests cover all of it.
 - **Dependencies:** T15, T27, T36.
+
+### T40 — Rename list from the overlay menu *(feature gap)*
+- **Goal:** Fix: renaming a list is impossible from the UI — the menu has
+  switch/create/delete/Categories/Members but no rename, although `PATCH /lists/:id { title }`
+  (OWNER-only, docs/API.md) has existed since T6.
+- **Inputs:** T30 (overlay menu), docs/API.md (Lists), CreateListForm (form pattern to reuse).
+- **Outputs:** OWNER-only "Rename" row in the menu's selected-list block → inline edit form
+  (RHF + the shared list-title schema, trim/empty rules identical to create); wire
+  `listsApi.update(id, title)` → `PATCH /lists/:id`; `useUpdateList` mutation with optimistic
+  title update on `["lists"]` + `["list", id]` + rollback, so the header line (list name) and
+  menu row update instantly; validation error / failure banners; hidden for VIEWER/EDITOR.
+- **Definition of Done:** OWNER renames from the menu → header + switcher row update without
+  refetch; PATCH body trimmed; failure rolls back and shows a banner; non-owners see no rename;
+  tests for all of it.
+- **Dependencies:** T30, T6 (PATCH endpoint exists).
