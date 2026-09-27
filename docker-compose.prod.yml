@@ -44,16 +44,20 @@ services:
       retries: 5
       start_period: 3s
 
-  # Placeholder until T22 (start with: docker compose -f docker-compose.prod.yml --profile tunnel up -d)
+  # T22: cloudflared tunnels https://grocery.<your-domain> → web:8080 (token mode, per .env).
+  # Start with: docker compose -f docker-compose.prod.yml --profile tunnel up -d
+  # Requires TUNNEL_TOKEN in .env (Cloudflare Zero Trust dashboard → Tunnels → the tunnel's token).
+  # DNS routing (CNAME <tunnel-id>.cfargotunnel.com) is created from the same dashboard.
   tunnel:
     profiles: ['tunnel']
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env to enable the tunnel}
     depends_on:
-      - web
+      web:
+        condition: service_healthy
     mem_limit: 64m
 
 volumes:

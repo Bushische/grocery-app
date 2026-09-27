@@ -64,8 +64,8 @@ docker compose up          # boots api (node:20-alpine, tsx-watch style) + web (
 - `.env` flow: `docker-compose.yml` reads `JWT_SECRET`, `PORT`, `DATABASE_PATH`,
   `UPLOADS_PATH`, `WEB_PORT`, `TUNNEL_TOKEN` from `.env` (gitignored; template in
   `.env.example`). Copy it once; never commit `.env`.
-- The `tunnel` service is a placeholder until T22 — start it explicitly with
-  `docker compose --profile tunnel up` after setting `TUNNEL_TOKEN`.
+- The `tunnel` service (T22) starts explicitly with `docker compose --profile tunnel up`
+  after setting `TUNNEL_TOKEN` in `.env` — see `.env.example` for the token + DNS route setup.
 
 ## Roadmap
 
@@ -79,7 +79,8 @@ docker compose up          # boots api (node:20-alpine, tsx-watch style) + web (
    main screen with drag-and-drop, input box with suggestions, item details + price chart,
    category management, permissions UI, PWA.
 4. **Phase D — Deployment (T21–T24):** arm64 Dockerfiles + local build scripts, Cloudflare
-   Tunnel, deployment + backup guide, smoke tests on the NAS.
+   Tunnel setup (T22: `docker compose --profile tunnel up` with `TUNNEL_TOKEN`,
+   public hostname `https://grocery.<your-domain>` → `web:8080`), deployment + backup guide, smoke tests on the NAS.
 
 Current status: see the task table in `docs/EXECUTION_LOG.md`.
 
