@@ -106,10 +106,12 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("c1");
     expect(screen.getByRole("option", { name: "Dairy" })).toBeInTheDocument();
     expect(screen.getByTestId("item-image")).toHaveAttribute("src", "/static/i1-abc.webp");
+    // Single point → readable placeholder, no (degenerate) chart (T28).
+    expect(screen.getByTestId("price-chart-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("price-chart")).not.toBeInTheDocument();
+    expect(uPlotCtor).not.toHaveBeenCalled();
     expect(screen.getByTestId("price-point")).toHaveTextContent("1.99");
     expect(screen.getByTestId("price-point")).toHaveTextContent("Lidl");
-    expect(uPlotCtor).toHaveBeenCalledTimes(1);
-    expect(chartData()[1]).toEqual([1.99]);
   });
 
   it("saves edits via PATCH /items/:id and shows the refreshed item", async () => {
@@ -169,7 +171,9 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
 
     const legendBefore = await screen.findByTestId("price-point");
     expect(legendBefore).toHaveTextContent("1.99");
-    expect(uPlotCtor).toHaveBeenCalledTimes(1);
+    // Single point → placeholder, no chart yet (T28).
+    expect(screen.getByTestId("price-chart-placeholder")).toBeInTheDocument();
+    expect(uPlotCtor).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("Price"), "2.5");
     await user.type(screen.getByLabelText("Shop"), "Netto");
@@ -182,7 +186,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
       }),
     );
     // The refetched history flows into the chart: two points, oldest → newest.
-    await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(1));
     expect(chartData()[1]).toEqual([1.99, 2.5]);
     await waitFor(() => expect(pricePoints()).toHaveLength(2));
     const points = pricePoints();
@@ -190,6 +194,17 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     expect(points[0]).toHaveTextContent("Lidl");
     expect(points[1]).toHaveTextContent("2.50");
     expect(points[1]).toHaveTextContent("Netto");
+
+    // T28: the chart lives below the price+shop form, in its own reserved
+    // space (fixed height, positioned, clipped — cannot overlap the inputs).
+    const addPriceButton = screen.getByRole("button", { name: "Add price" });
+    const chart = screen.getByTestId("price-chart");
+    expect(
+      addPriceButton.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(chart).toHaveStyle({ height: "200px" });
+    expect(chart.className).toContain("relative");
+    expect(chart.className).toContain("overflow-hidden");
   });
 
   it("blocks an empty price submission client-side", async () => {

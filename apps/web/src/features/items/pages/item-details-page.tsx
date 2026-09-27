@@ -106,19 +106,16 @@ export function ItemDetailsPage() {
           className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200"
         >
           <h2 className="text-sm font-medium text-gray-700">Price history</h2>
-          {prices.length > 0 ? (
-            <div className="mt-3">
-              <PriceChart observations={prices} />
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-gray-500">No prices recorded yet.</p>
-          )}
-          <div className="mt-4 border-t border-gray-100 pt-4">
+          <div className="mt-3 border-b border-gray-100 pb-4">
             <PriceForm
               pending={addPrice.isPending}
               error={addPrice.isError ? "Could not add the price. Please try again." : null}
               onSave={(observation) => addPrice.mutate(observation)}
             />
+          </div>
+          {/* Chart below the form, in its own reserved layout space (T28). */}
+          <div className="mt-4">
+            <PriceChart observations={prices} />
           </div>
         </section>
       </div>
