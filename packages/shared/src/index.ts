@@ -247,6 +247,43 @@ export type SmartAddResponse = z.infer<typeof smartAddResponseSchema>;
 export const itemDetailSchema = itemSchema.extend({ prices: z.array(priceObservationSchema) });
 export type ItemDetail = z.infer<typeof itemDetailSchema>;
 
+// --- Suggest & Search (docs/API.md → Suggest & Search; docs/TASKS.md → T12) ---
+
+/** Max items returned by `GET /items/suggest` (docs/API.md → Suggest & Search). */
+export const MAX_SUGGEST_RESULTS = 20;
+
+/** Suggested item row — the subset the bottom input box renders. */
+export const suggestItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  qtyText: z.string().nullable(),
+  status: itemStatusSchema,
+});
+export type SuggestItem = z.infer<typeof suggestItemSchema>;
+
+/** One category group of the suggest response — items keep the suggest order. */
+export const suggestGroupSchema = z.object({
+  category: itemCategorySchema,
+  items: z.array(suggestItemSchema),
+});
+export type SuggestGroup = z.infer<typeof suggestGroupSchema>;
+
+export const suggestResponseSchema = z.object({ groups: z.array(suggestGroupSchema) });
+export type SuggestResponse = z.infer<typeof suggestResponseSchema>;
+
+/** Element of `GET /search` — flat rows across the user's lists. */
+export const searchResultSchema = z.object({
+  itemId: z.string().min(1),
+  listId: z.string().min(1),
+  title: z.string().min(1),
+  status: itemStatusSchema,
+  categoryColor: hexColorSchema,
+});
+export type SearchResult = z.infer<typeof searchResultSchema>;
+
+export const searchResponseSchema = z.object({ results: z.array(searchResultSchema) });
+export type SearchResponse = z.infer<typeof searchResponseSchema>;
+
 // --- Item images (docs/API.md → Items — image; docs/TASKS.md → T10) ---
 
 /** Max multipart upload size for item images (docs/API.md → Items: "< 2 MB"). */

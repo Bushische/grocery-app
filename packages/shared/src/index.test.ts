@@ -3,6 +3,7 @@ import {
   API_BASE_PATH,
   MAX_IMAGE_DIMENSION,
   MAX_IMAGE_UPLOAD_BYTES,
+  MAX_SUGGEST_RESULTS,
   addListMemberRequestSchema,
   categorySchema,
   createCategoryRequestSchema,
@@ -22,8 +23,11 @@ import {
   moveItemRequestSchema,
   priceObservationSchema,
   pricesResponseSchema,
+  searchResponseSchema,
+  searchResultSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
+  suggestResponseSchema,
   updateCategoryRequestSchema,
   updateItemRequestSchema,
 } from "./index";
@@ -381,5 +385,43 @@ describe("item image schemas", () => {
     });
     expect(itemImageResponseSchema.safeParse({}).success).toBe(false);
     expect(itemImageResponseSchema.safeParse({ imageFilename: "" }).success).toBe(false);
+  });
+});
+
+describe("suggest & search schemas (T12)", () => {
+  it("MAX_SUGGEST_RESULTS matches the contract", () => {
+    expect(MAX_SUGGEST_RESULTS).toBe(20);
+  });
+
+  it("suggestResponseSchema validates grouped suggestions", () => {
+    const parsed = suggestResponseSchema.parse({
+      groups: [
+        {
+          category: { id: "c1", title: "Dairy", color: "#3B82F6" },
+          items: [{ id: "i1", title: "Milk", qtyText: null, status: "TO_BUY" }],
+        },
+      ],
+    });
+    expect(parsed.groups[0]!.category.color).toBe("#3B82F6");
+    expect(suggestResponseSchema.safeParse({ groups: [{ category: { id: "c1" } }] }).success).toBe(
+      false,
+    );
+  });
+
+  it("searchResultSchema requires itemId, listId, title, status, categoryColor", () => {
+    expect(
+      searchResponseSchema.parse({
+        results: [
+          { itemId: "i1", listId: "l1", title: "Milk", status: "BOUGHT", categoryColor: "#000000" },
+        ],
+      }).results,
+    ).toHaveLength(1);
+    expect(
+      searchResultSchema.safeParse({ itemId: "i1", listId: "l1", title: "Milk", status: "BOUGHT" })
+        .success,
+    ).toBe(false);
+    expect(searchResultSchema.safeParse({ itemId: "i1", categoryColor: "red" }).success).toBe(
+      false,
+    );
   });
 });
