@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLogout } from "../../auth/hooks/use-logout";
 import { useSession } from "../../auth/hooks/use-session";
+import type { CategoriesNavigationState } from "../../categories/pages/categories-page";
 import { AddItemInput } from "../../items/components/add-item-input";
 import { ItemSectionsContainer } from "../../items/components/item-sections-container";
 import { CreateListForm } from "../components/create-list-form";
@@ -19,6 +21,7 @@ const GENERIC_CREATE_ERROR = "Could not create the list. Please try again.";
  */
 export function ListsPage() {
   const { user } = useSession();
+  const navigate = useNavigate();
   const lists = useLists();
   const logout = useLogout();
   const createList = useCreateList();
@@ -94,13 +97,26 @@ export function ListsPage() {
                   <p className="text-sm text-gray-500">
                     {selectedList.itemCounts.toBuy} to buy · {selectedList.itemCounts.bought} bought
                   </p>
-                  {selectedList.role === "OWNER" ? (
-                    <DeleteListButton
-                      key={selectedList.id}
-                      pending={deleteList.isPending}
-                      onConfirm={() => deleteList.mutate(selectedList.id)}
-                    />
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void navigate(`/lists/${selectedList.id}/categories`, {
+                          state: { role: selectedList.role } satisfies CategoriesNavigationState,
+                        })
+                      }
+                      className="min-h-10 rounded-lg px-3 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+                    >
+                      Categories
+                    </button>
+                    {selectedList.role === "OWNER" ? (
+                      <DeleteListButton
+                        key={selectedList.id}
+                        pending={deleteList.isPending}
+                        onConfirm={() => deleteList.mutate(selectedList.id)}
+                      />
+                    ) : null}
+                  </div>
                 </div>
 
                 {items.status === "pending" ? (

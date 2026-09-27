@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RedirectIfAuthenticated, RequireAuth } from "./features/auth/components/session-guards";
 import { LoginPage } from "./features/auth/pages/login-page";
+import { CategoriesPage } from "./features/categories/pages/categories-page";
+import { CategoryItemsPage } from "./features/categories/pages/category-items-page";
 import { ItemDetailsPage } from "./features/items/pages/item-details-page";
 import { ListsPage } from "./features/lists/pages/lists-page";
 
@@ -28,6 +30,22 @@ export function App() {
         element={
           <RequireAuth>
             <ItemDetailsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/lists/:listId/categories"
+        element={
+          <RequireAuth>
+            <CategoriesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/categories/:categoryId"
+        element={
+          <RequireAuth>
+            <CategoryItemsPage />
           </RequireAuth>
         }
       />
