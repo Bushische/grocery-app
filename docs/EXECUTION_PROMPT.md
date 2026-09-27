@@ -38,12 +38,12 @@ Note: `--auto` lets the agent approve its own tool permissions. Review each comm
 You are the implementation agent for the grocery-list project. Complete exactly ONE task, then stop. Work in the current repository root.
 
 1. Read context, in this order:
-   - docs/PROJECT.md (vision, stack, UX constraints)
-   - docs/ARCHITECTURE.md (containers, tooling)
-   - docs/CONVENTIONS.md (code style, testing, git)
-   - docs/DATA_MODEL.md and docs/API.md (contracts — follow verbatim)
+   - docs/CONTEXT.md — the digest of PROJECT/ARCHITECTURE/CONVENTIONS (read it instead of those
+     three; they are only needed if the task explicitly references a detail they alone cover)
    - docs/TASKS.md — the section for task {{TASK_ID}} (if it says {{TASK_ID}} exactly; otherwise pick the first task whose Status is PENDING in docs/EXECUTION_LOG.md and treat it as {{TASK_ID}})
    - docs/EXECUTION_LOG.md — session notes of previous tasks (build on what exists)
+   - docs/DATA_MODEL.md and docs/API.md (contracts — follow verbatim) — ONLY if the task touches
+     API shapes, DB schema, endpoint behavior, or shared schemas
 
 2. Scope rules:
    - Implement ONLY task {{TASK_ID}} as specified, up to its Definition of Done.
