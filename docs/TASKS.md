@@ -288,6 +288,48 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   (main screen and/or management page); verified in the browser on mobile viewport.
 - **Dependencies:** T19.
 
+### T30 — Single-line header + overlay menu *(UX redesign)*
+- **Goal:** The stacked header (title + account + sign out) and the row of list controls eat half
+  of a phone screen. One line on top; everything else lives in an overlay menu.
+- **Inputs:** T15 (lists view), T16 (main screen), docs/PROJECT.md (Mobile & UX Constraints),
+  T20 (members), T19 (categories), T32 (admin users page).
+- **Outputs:** exactly one header line: current list name + a menu (accordion/hamburger) button.
+  Tapping it opens an overlay menu (drawer/popover over the content) containing, top to bottom:
+  account block (login email + Sign out); list-management block (list switcher, create list,
+  delete list — OWNER-only, Categories, Members — OWNER-only, per-list roles as today);
+  admin-tools block (Users management → T32 page) rendered only when the global
+  `users.role === 'admin'`. Menu closes on selection/Escape/backdrop tap; ≥ 40 px targets.
+- **Definition of Done:** mobile viewport (375 px) shows exactly one header line with list name
+  + menu button; all previously header-mounted actions are reachable from the overlay menu with
+  their existing permission gates; DnD/long-press/add-item bar unaffected; existing page tests
+  updated and green.
+- **Dependencies:** T15, T16, T20, T19, T32.
+
+### T31 — Admin user management API *(new — contract endpoints missing)*
+- **Goal:** docs/API.md (Users — admin only: `GET/POST/DELETE /users`) was never implemented —
+  admins currently cannot create users (only the §8 bootstrap SQL or the seed script).
+- **Inputs:** docs/API.md (Users), docs/DATA_MODEL.md (users), docs/PROJECT.md (Auth).
+- **Outputs:** `routes/users.ts` + `services/userService.ts`: list users, create user (email +
+  password + role, bcrypt hash, unique email → 409), delete user (409 when the user owns lists,
+  per docs/API.md; 204 otherwise); shared zod schemas (userDto, createUserRequest) in
+  `packages/shared`; every route requires the global admin role (T33's `requireAdmin` — build it
+  here if T33 has not run yet, then T33 only adds tests).
+- **Definition of Done:** integration tests: admin CRUD happy paths; non-admin → 403; duplicate
+  email → 409; delete list-owning user → 409; hash-only persistence.
+- **Dependencies:** T5.
+
+### T32 — Admin users page *(new UI)*
+- **Goal:** Admins need a UI to create users (the "cannot create a new user" report).
+- **Inputs:** T31 (users API), docs/PROJECT.md (Auth), T30 (menu hosts the entry point).
+- **Outputs:** feature `users`: admin-only page (route `/users`) — user list (email, role,
+  createdAt), create-user form (RHF + shared schema: email, password, role select user/admin),
+  delete with confirm + 409 ("owns lists") handling; link from the T30 overlay menu's admin
+  block; non-admin deep link → blocked notice (T20 pattern).
+- **Definition of Done:** admin creates a user, the new user can log in (manual curl check);
+  duplicate email shows 409 message; non-admin sees the blocked notice, no API calls; tests for
+  all of it.
+- **Dependencies:** T31, T14, T30 (menu placement).
+
 ### T26 — Smart-add must allow creating a new item despite existing suggestions *(bugfix)*
 - **Goal:** Fix: typing "melon" with existing "watermelon" shows suggestions but gives no way to
   create the new item "melon".
