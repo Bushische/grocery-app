@@ -431,3 +431,19 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   row; buying an item via tap/move applies the style immediately (optimistic update kept);
   un-buying restores the normal look; row tests cover both states.
 - **Dependencies:** T16, T27 (row-tap toggle — style must not fight the tap affordance).
+
+### T37 — Self-healing default "Other" category *(bugfix)*
+- **Goal:** Fix: deleting the (empty) default "Other" category (possible via T19's category UI)
+  makes every smart-add and plain create on that list return 500 — `defaultCategoryId`
+  (itemService.ts) assumes the category always exists.
+- **Inputs:** docs/PROJECT.md (every list has a default "Other"), T25 (category delete UI),
+  docs/API.md (smart-add step 4).
+- **Outputs:** the default category must exist for the list's lifetime. Preferred: make
+  `defaultCategoryId` self-healing — when missing, re-create it (title "Other", color #6B7280,
+  appended sortOrder) inside the same transaction as the create/smart-add, and return its id;
+  document that "Other" is recreatable. Alternative (if self-heal is rejected): category delete
+  returns 409 for the default category AND the UI disables it (web + api guard).
+- **Definition of Done:** test: delete "Other" from a list (empty) → smart-add returns 201 and
+  recreates "Other"; plain `POST /items` works; concurrent deletes don't duplicate "Other"
+  (unique per list+title); existing category-delete tests stay green.
+- **Dependencies:** T8, T19.
