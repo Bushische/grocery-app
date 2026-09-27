@@ -45,3 +45,40 @@ describe("loadConfig", () => {
     ).toThrow(/JWT_SECRET/);
   });
 });
+
+describe("loadConfig CORS_ORIGIN production gate (T34)", () => {
+  const productionEnv = {
+    NODE_ENV: "production",
+    LOG_LEVEL: "silent",
+    JWT_SECRET: "test-production-secret",
+  };
+
+  it("rejects an unset CORS_ORIGIN in production with an explicit error", () => {
+    expect(() => loadConfig(productionEnv)).toThrow("CORS_ORIGIN must be set in production");
+  });
+
+  it("rejects an empty or whitespace-only CORS_ORIGIN in production", () => {
+    for (const CORS_ORIGIN of ["", "   "]) {
+      expect(() => loadConfig({ ...productionEnv, CORS_ORIGIN })).toThrow(/CORS_ORIGIN/);
+    }
+  });
+
+  it("rejects a CORS_ORIGIN that parses to an empty allowlist in production", () => {
+    expect(() => loadConfig({ ...productionEnv, CORS_ORIGIN: " , , " })).toThrow(/CORS_ORIGIN/);
+  });
+
+  it("boots in production with a CORS_ORIGIN value (allowlist semantics unchanged)", () => {
+    const config = loadConfig({
+      ...productionEnv,
+      CORS_ORIGIN: "https://grocery.example.com",
+    });
+    expect(config.isProduction).toBe(true);
+    expect(config.corsOrigins).toEqual(["https://grocery.example.com"]);
+  });
+
+  it("still boots outside production with an empty CORS_ORIGIN (NODE_ENV unset)", () => {
+    const config = loadConfig({ LOG_LEVEL: "silent", CORS_ORIGIN: "" });
+    expect(config.isProduction).toBe(false);
+    expect(config.corsOrigins).toBe(true);
+  });
+});

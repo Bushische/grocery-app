@@ -42,6 +42,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       : parsed.CORS_ORIGIN.split(",")
           .map((origin) => origin.trim())
           .filter((origin) => origin.length > 0);
+  if (parsed.NODE_ENV === "production" && (!corsOrigins || corsOrigins.length === 0)) {
+    throw new Error(
+      "CORS_ORIGIN must be set in production (comma-separated origin allowlist, see .env.prod.example): with credentials: true an unset CORS_ORIGIN would reflect any origin",
+    );
+  }
   return {
     env: parsed.NODE_ENV,
     isProduction: parsed.NODE_ENV === "production",

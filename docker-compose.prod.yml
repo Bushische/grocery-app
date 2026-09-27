@@ -13,6 +13,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (see .env.prod.example)}
       DATABASE_PATH: /data/grocery.db
       UPLOADS_PATH: /data/images
+      # Required in production (T34): the api refuses to boot with an empty value —
+      # credentials:true + no allowlist would reflect any origin.
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:

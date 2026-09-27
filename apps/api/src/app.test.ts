@@ -89,3 +89,40 @@ describe("plugins", () => {
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
   });
 });
+
+describe("production boot with CORS_ORIGIN (T34)", () => {
+  it("serves requests with the configured allowlist instead of reflecting any origin", async () => {
+    const uploadsDir = mkdtempSync(join(tmpdir(), "grocery-uploads-prod-"));
+    const prodApp = buildApp(
+      loadConfig({
+        NODE_ENV: "production",
+        LOG_LEVEL: "silent",
+        JWT_SECRET: "test-only-production-secret",
+        CORS_ORIGIN: "https://grocery.example.com",
+        UPLOADS_PATH: uploadsDir,
+      }),
+    );
+    await prodApp.ready();
+    try {
+      const allowed = await prodApp.inject({
+        method: "GET",
+        url: "/health",
+        headers: { origin: "https://grocery.example.com" },
+      });
+      expect(allowed.statusCode).toBe(200);
+      expect(allowed.headers["access-control-allow-origin"]).toBe("https://grocery.example.com");
+
+      const foreign = await prodApp.inject({
+        method: "OPTIONS",
+        url: "/health",
+        headers: {
+          origin: "https://evil.example",
+          "access-control-request-method": "GET",
+        },
+      });
+      expect(foreign.headers["access-control-allow-origin"]).toBeUndefined();
+    } finally {
+      await prodApp.close();
+    }
+  });
+});
