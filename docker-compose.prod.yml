@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env to enable the tunnel}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
       web:
         condition: service_healthy

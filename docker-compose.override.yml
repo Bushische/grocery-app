@@ -1,0 +1,5 @@
+services:
+  api:
+    volumes:
+      - ./local-data:/data
+      - uploads:/data/images  

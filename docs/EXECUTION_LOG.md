@@ -34,6 +34,11 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 | T23 | Deployment guide + backup strategy | DONE | 2026-09-27 | docs/DEPLOYMENT.md (topology, prereqs, build/transfer, .env/secrets, first boot, first-admin bootstrap, tunnel, volume layout, backup script + Task Scheduler setup, restore drill, upgrades, troubleshooting); DoD backup+restore drill executed for real on arm64 Docker against the shipped images (see §10.3); ALSO fixed two latent T21 defects that made a from-zero deploy unusable (nginx /api prefix stripping + prod sharp resolution — details in session notes); lint+test green (335 tests) |
 | T24 | Smoke test checklist on real Synology | DONE | 2026-09-27 | docs/SMOKE_TEST_T24.md; arm64 Docker prod stack smoked end-to-end (mem 80.8 MB < 150, cold start 0.5 s, UI < 1 s, login-once across restarts, full item/price/image flow); fixed boot-blocking CORS_ORIGIN="" crash; DnD-on-phone + real-domain tunnel checks remain on-device (prereqs verified) |
 | T24.5 | PWA configuration | DONE | 2026-09-27 | vite-plugin-pwa (generateSW, autoUpdate): manifest "My Groceries"/fullscreen/#16a34a + generated icons; SW precaches the app shell (16 entries), SPA navigate fallback to index.html (denylist /api,/static), CacheFirst runtime cache for GET /static/* (item images, 300 entries/1y); nginx no-cache for sw.js/registerSW.js + manifest MIME; 8 new web tests; A2HS/on-phone checks remain manual |
+| T25 | Category management: add-category button | PENDING | | |
+| T26 | Smart-add: allow creating new items despite suggestions | PENDING | | |
+| T27 | Main list: whole-row tap toggles bought/to-buy | PENDING | | |
+| T28 | Price chart layout fix | PENDING | | |
+| T29 | Suggestions popover above input, max 3 | PENDING | | |
 
 ## Rules
 - One task per agent session; one commit per task (made by the orchestrator after verification).

@@ -275,3 +275,58 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
 - **Definition of Done:** installed PWA opens full-screen, loads shell offline, item images load
   from cache with no network request on repeat visit, no re-login after reopening.
 - **Dependencies:** T14 (code), verified at T24.
+
+## Phase E — Feedback round 1 (found testing the deployed app)
+
+### T25 — Category management: always-available "add category" button *(bugfix)*
+- **Goal:** Fix: users cannot create more than one category (no Add/+ button visible anywhere).
+- **Inputs:** docs/PROJECT.md (Categories), T19 (category management page).
+- **Outputs:** a persistent, reachable "Add category" affordance (button on the category
+  management page, and/or `+` in the category list on the main screen), regardless of how many
+  categories exist; the empty state also offers it.
+- **Definition of Done:** with ≥ 1 category existing, a new category can be created from the UI
+  (main screen and/or management page); verified in the browser on mobile viewport.
+- **Dependencies:** T19.
+
+### T26 — Smart-add must allow creating a new item despite existing suggestions *(bugfix)*
+- **Goal:** Fix: typing "melon" with existing "watermelon" shows suggestions but gives no way to
+  create the new item "melon".
+- **Inputs:** docs/API.md (smart-add semantics), T17 (bottom input box).
+- **Outputs:** the input keeps a distinct "Create 'melon'" action (explicit create row/button or
+  a dedicated Enter-with-no-selection behavior) whenever the query does not exactly match an
+  item; duplicate names must also be creatable (same name twice = two items, unless the user
+  picks a suggestion).
+- **Definition of Done:** with "watermelon" existing: "melon" → can create a separate item;
+  re-adding "watermelon" (exact match) still re-activates per smart-add; duplicate creation works.
+- **Dependencies:** T17.
+
+### T27 — Main list: tap the whole row toggles bought/to-buy *(UX change)*
+- **Goal:** Replace the special buy/unbuy button: tapping anywhere on the row moves the item.
+- **Inputs:** T16 (main screen), T9 (move semantics).
+- **Outputs:** whole-row tap = `POST /items/:id/move` (TO_BUY → BOUGHT with timestamp/counter
+  updates; BOUGHT → back to TO_BUY). Drag must still be handle-only; long-press (500 ms) still
+  opens details; row tap must not fire after a drag or long-press (gesture disambiguation).
+- **Definition of Done:** on a mobile viewport: tap toggles status both directions, DnD via
+  handle still works, long-press still opens details, no accidental toggles during scroll.
+- **Dependencies:** T16, T9.
+
+### T28 — Price chart layout fix *(bugfix)*
+- **Goal:** Fix: the price history chart looks broken and overlaps the price input.
+- **Inputs:** T18 (item details, uplot chart).
+- **Outputs:** chart gets its own layout space (no absolute overlap): reserved height, responsive
+  width, sensible y-axis padding; chart renders below the price+shop form; empty/single-point
+  state shows a placeholder instead of a broken chart.
+- **Definition of Done:** on mobile viewport (375 px width) with 1..N price points: chart never
+  overlaps the input, single point renders cleanly, labels readable.
+- **Dependencies:** T18.
+
+### T29 — Suggestions popover above the input, max 3 *(UX change)*
+- **Goal:** Fix: suggestion list pushes the input up; should overlay it.
+- **Inputs:** T17 (bottom input box), docs/PROJECT.md (UX).
+- **Outputs:** suggestions render as a floating layer anchored above the input (absolute/
+  popover, not in-flow — input stays pinned to the bottom edge); list capped at 3 items
+  (server allows more via T12 `?limit=`, client trims); includes the T26 "Create" row; closes
+  on blur/select/Escape; tap targets > 40 px.
+- **Definition of Done:** typing shows ≤ 3 suggestions in an overlay above the input without
+  moving it; selecting/creating/dismissing works by tap; keyboard (Escape) closes it.
+- **Dependencies:** T17, T26.
