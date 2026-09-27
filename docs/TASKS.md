@@ -496,3 +496,23 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   refetch; PATCH body trimmed; failure rolls back and shows a banner; non-owners see no rename;
   tests for all of it.
 - **Dependencies:** T30, T6 (PATCH endpoint exists).
+
+### T41 — List selection in the URL; details listId from the route *(bugfix, 2 user reports)*
+- **Goal:** Two bugs, one root cause — the selected list lives in component state
+  (`lists-page.tsx` `useState<string | null>`), not in the URL:
+  1. Back from item details lands on the FIRST list (`navigate(-1)` → `/` remounts ListsPage →
+     selection resets to `listsData[0]`).
+  2. Item category is read-only on the details page whenever `location.state.listId` is missing
+     (reload, deep link, stale history state) — the select renders only with a known list
+     context (item-details-page.tsx:24, item-edit-form.tsx:57).
+- **Inputs:** T30 (menu navigation), T18 (details), react-router.
+- **Outputs:** main screen gets a real route `/lists/:listId` (plain `/` redirects to the first
+  list); list switching = navigation (menu `selectAndClose` → navigate), no component state;
+  item details derives its listId from the item payload (`detail.data` carries the list) or a
+  `/lists/:listId/items/:itemId` nested route — **no `location.state` dependency**; Back
+  navigates explicitly to `/lists/:listId`; categories fetch always has a real listId.
+- **Definition of Done:** repro 1 fixed: open a non-first list → edit an item → Back returns to
+  **that** list (not the first); reload on details keeps everything working; deep link to
+  `/items/:id` shows an editable category (listId from the payload); switching lists via the
+  menu updates the URL; tests cover back-navigation and deep-link category edit.
+- **Dependencies:** T30, T18, T14.
