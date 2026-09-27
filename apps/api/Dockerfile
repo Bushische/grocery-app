@@ -28,6 +28,16 @@ RUN pnpm --filter @grocery/shared build \
     && pnpm --filter api build \
     && pnpm --filter web build
 
+# Self-contained runtime node_modules for the bundle's two native externals
+# (better-sqlite3, sharp): copy their pnpm store slices with symlinks DEREFERENCED.
+# The slices' internal @img/* entries are relative symlinks into sibling store dirs
+# (e.g. ../../@img+colour@1.1.0/...) that don't exist in the runtime stage — a plain
+# copy leaves them dangling and image upload fails with ERR_MODULE_NOT_FOUND.
+RUN mkdir -p /out/node_modules \
+    && cp -rL /app/node_modules/.pnpm/sharp@*/node_modules/. /out/node_modules/ \
+    && cp -rL /app/node_modules/.pnpm/better-sqlite3@*/node_modules/. /out/node_modules/ \
+    && rm -rf /out/node_modules/@types
+
 # ---------------------------------------------------------------- final: api
 FROM node:22-alpine AS api
 WORKDIR /app
@@ -37,15 +47,13 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000
 
-# Runtime files for the two native externals of the bundle (better-sqlite3, sharp)
 COPY --from=build /app/apps/api/dist/server.js ./dist/server.js
 # The bundled migrate.ts resolves the migrations folder relative to dist/ → /drizzle
 # (dist/../..), per the T4.5 session note — hence the root-level copy.
 COPY --from=build /app/apps/api/drizzle /drizzle
-COPY --from=build /app/apps/api/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=build /app/apps/api/node_modules/sharp ./node_modules/sharp
-
-# sharp's transitive deps must be resolvable from node_modules/sharp
+# Runtime files for the two native externals of the bundle (better-sqlite3, sharp):
+# flat, symlink-free node_modules prepared in the build stage (see the /out step above).
+COPY --from=build /out/node_modules ./node_modules/
 RUN mkdir -p /data /data/images \
     && addgroup -S app && adduser -S app -G app \
     && chown -R app:app /data /app
