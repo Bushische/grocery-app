@@ -19,7 +19,14 @@ export function useCreateList() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (title: string) => listsApi.create(title),
-    onSuccess: () => {
+    onSuccess: (created) => {
+      // T41: selection is URL-owned — the menu navigates to /lists/:id right
+      // after the create, so the summary must be in the cache before the
+      // invalidation refetch lands (otherwise the page would redirect away).
+      const lists = queryClient.getQueryData<ListSummary[]>(LISTS_QUERY_KEY);
+      if (lists && !lists.some((list) => list.id === created.id)) {
+        queryClient.setQueryData(LISTS_QUERY_KEY, [...lists, created]);
+      }
       void queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY });
     },
   });

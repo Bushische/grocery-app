@@ -1,8 +1,8 @@
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useCategories } from "../../lists/hooks/use-categories";
 import { ImageUpload } from "../components/image-upload";
 import { ItemEditForm } from "../components/item-edit-form";
-import type { DetailsNavigationState } from "../components/item-sections-container";
 import { PriceChart } from "../components/price-chart";
 import { PriceForm } from "../components/price-form";
 import { useItemDetail } from "../hooks/use-item-detail";
@@ -11,19 +11,36 @@ import {
   useUpdateItem,
   useUploadItemImage,
 } from "../hooks/use-item-detail-mutations";
+import { useItemListId } from "../hooks/use-item-list-id";
 
 /**
  * Item details page (docs/TASKS.md → T18, the long-press / right-click target):
  * edit title/category/qty, upload a photo (downscaled client-side), and record
  * prices into the uplot history chart (each point labeled price + shop).
+ * T41: the canonical route is `/lists/:listId/items/:itemId` — the owning list
+ * comes from the URL (never navigation state), so reload/deep links keep the
+ * category editable and Back returns to that exact list. Legacy `/items/:id`
+ * deep links resolve the list from the payload (item caches, else
+ * `GET /search`), then upgrade themselves to the canonical URL.
  */
 export function ItemDetailsPage() {
-  const { itemId = "" } = useParams<{ itemId: string }>();
+  const { itemId = "", listId: routeListId } = useParams<{
+    itemId: string;
+    listId?: string;
+  }>();
   const navigate = useNavigate();
-  const location = useLocation();
-  const listId = (location.state as DetailsNavigationState | null)?.listId ?? null;
 
   const detail = useItemDetail(itemId);
+  const resolvedListId = useItemListId(itemId, detail.data);
+  const listId = routeListId ?? resolvedListId;
+
+  // A resolved legacy deep link upgrades to the canonical URL — Back then
+  // returns to that list's main screen and the URL stays shareable.
+  useEffect(() => {
+    if (routeListId || !listId) return;
+    navigate(`/lists/${listId}/items/${itemId}`, { replace: true });
+  }, [routeListId, listId, itemId, navigate]);
+
   const categories = useCategories(listId);
   const updateItem = useUpdateItem(listId, itemId);
   const addPrice = useAddItemPrice(listId, itemId);
@@ -56,7 +73,7 @@ export function ItemDetailsPage() {
         <header className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={() => (listId ? navigate(`/lists/${listId}`) : navigate(-1))}
             aria-label="Back to the list"
             className="min-h-11 rounded-lg px-3 text-base font-medium text-gray-700 hover:bg-gray-100"
           >

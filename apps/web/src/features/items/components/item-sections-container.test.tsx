@@ -3,7 +3,7 @@ import type { Item } from "@grocery/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../../stores/auth-store";
 import { createApiFetchMock, json } from "../../../test/mock-api";
@@ -45,11 +45,18 @@ function renderContainer(toBuy: Item[] = TO_BUY, bought: Item[] = BOUGHT, listId
             path="/"
             element={<ItemSectionsContainer listId={listId} toBuy={toBuy} bought={bought} />}
           />
-          <Route path="/items/:itemId" element={<p>details-page</p>} />
+          <Route path="/lists/:listId/items/:itemId" element={<DetailsProbe />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+/** T41: the details navigation target — pins the list id carried in the URL. */
+function DetailsProbe() {
+  const { listId = "" } = useParams<{ listId: string }>();
+  const location = useLocation();
+  return <p data-testid="details-page">{`${location.pathname} (list ${listId})`}</p>;
 }
 
 function renderReorderHarness(listId: string): void {
@@ -208,7 +215,10 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     });
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(await screen.findByText("details-page")).toBeInTheDocument();
+    // T41: the canonical details URL carries the owning list.
+    expect(await screen.findByTestId("details-page")).toHaveTextContent(
+      "/lists/l1/items/i1 (list l1)",
+    );
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 
@@ -224,7 +234,7 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     fireEvent.pointerMove(body, { pointerType: "touch", clientX: 40, clientY: 50 });
     await vi.advanceTimersByTime(600);
 
-    expect(screen.queryByText("details-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("details-page")).not.toBeInTheDocument();
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 
@@ -243,7 +253,7 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     fireEvent.click(body);
 
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
-    expect(screen.queryByText("details-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("details-page")).not.toBeInTheDocument();
   });
 
   it("opens details on right-click (desktop) without toggling", async () => {
@@ -254,7 +264,9 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
 
     fireEvent.contextMenu(rowBody("i1"));
 
-    expect(await screen.findByText("details-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("details-page")).toHaveTextContent(
+      "/lists/l1/items/i1 (list l1)",
+    );
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 });
@@ -347,7 +359,7 @@ describe("ItemRow bought styling (docs/TASKS.md → T36)", () => {
         <MemoryRouter initialEntries={["/"]}>
           <Routes>
             <Route path="/" element={<MoveHarness />} />
-            <Route path="/items/:itemId" element={<p>details-page</p>} />
+            <Route path="/lists/:listId/items/:itemId" element={<DetailsProbe />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -412,7 +424,7 @@ describe("To buy section header count (docs/TASKS.md → T39, client-derived)", 
         <MemoryRouter initialEntries={["/"]}>
           <Routes>
             <Route path="/" element={<CacheHarness />} />
-            <Route path="/items/:itemId" element={<p>details-page</p>} />
+            <Route path="/lists/:listId/items/:itemId" element={<DetailsProbe />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,

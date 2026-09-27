@@ -24,8 +24,6 @@ const roleBadgeClass =
 interface AppMenuProps {
   /** The list the main screen currently shows (null = none selected / none exists). */
   selectedList: ListSummary | null;
-  /** Switch the main screen to this list — selection state is owned by the page. */
-  onSelectList: (id: string) => void;
 }
 
 /**
@@ -35,9 +33,10 @@ interface AppMenuProps {
  * management (switcher, create, OWNER-only rename + delete, Categories,
  * OWNER-only Members, per-list roles as before) and the admin tools ("Users
  * management" → the T32 page, admins only). Closes on selection, Escape, and
- * backdrop tap; rows are ≥ 40 px touch targets.
+ * backdrop tap; rows are ≥ 40 px touch targets. T41: switching lists is a
+ * navigation to `/lists/:listId` — the URL owns the selection.
  */
-export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
+export function AppMenu({ selectedList }: AppMenuProps) {
   const { user } = useSession();
   const lists = useLists();
   const logout = useLogout();
@@ -58,10 +57,10 @@ export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
   }, []);
 
   const selectAndClose = (id: string) => {
-    onSelectList(id);
     setShowCreateForm(false);
     setShowRenameForm(false);
     close();
+    void navigate(`/lists/${id}`);
   };
 
   const listsData = lists.data ?? [];

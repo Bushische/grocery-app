@@ -53,6 +53,8 @@ function renderPage(initialState?: { listId?: string }): void {
       >
         <Routes>
           <Route path="/categories/:categoryId" element={<CategoryItemsPage />} />
+          {/* T41: with a list context the details open at the canonical nested URL. */}
+          <Route path="/lists/:listId/items/:itemId" element={<p>details-page</p>} />
           <Route path="/items/:itemId" element={<p>details-page</p>} />
         </Routes>
       </MemoryRouter>

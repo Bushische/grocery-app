@@ -27,6 +27,25 @@ export function App() {
           </RequireAuth>
         }
       />
+      {/* T41: the selected list lives in the URL — `/` redirects to the first list. */}
+      <Route
+        path="/lists/:listId"
+        element={
+          <RequireAuth>
+            <ListsPage />
+          </RequireAuth>
+        }
+      />
+      {/* T41: the canonical details route — the owning list comes from the URL. */}
+      <Route
+        path="/lists/:listId/items/:itemId"
+        element={
+          <RequireAuth>
+            <ItemDetailsPage />
+          </RequireAuth>
+        }
+      />
+      {/* Legacy deep links (old bookmarks/history) resolve their list from the payload. */}
       <Route
         path="/items/:itemId"
         element={

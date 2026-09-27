@@ -3,6 +3,7 @@ import {
   type Item,
   type ItemDetail,
   type PriceObservation,
+  type SearchResponse,
   type SmartAddResponse,
   type SuggestResponse,
   type UpdateItemRequest,
@@ -14,6 +15,7 @@ import {
   moveItemRequestSchema,
   priceObservationSchema,
   reorderRequestSchema,
+  searchResponseSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
   suggestResponseSchema,
@@ -73,4 +75,8 @@ export const itemsApi = {
       smartAddRequestSchema.parse({ text }),
       smartAddResponseSchema,
     ),
+  /** GET /search?q= — free search across the user's lists (docs/API.md → Suggest & Search);
+   * its rows are the one payload mapping itemId → listId (T41 deep links). */
+  search: (q: string, signal?: AbortSignal): Promise<SearchResponse> =>
+    api.get(`/search?q=${encodeURIComponent(q)}`, searchResponseSchema, signal),
 };

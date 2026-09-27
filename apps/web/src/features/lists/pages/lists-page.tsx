@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { AddItemInput } from "../../items/components/add-item-input";
 import { ItemSectionsContainer } from "../../items/components/item-sections-container";
 import { AppMenu } from "../components/app-menu";
@@ -8,19 +9,28 @@ import { useLists } from "../hooks/use-lists";
 /**
  * Main screen (docs/TASKS.md → T30 UX redesign): exactly one header line —
  * the current list's name plus the menu button; every list/account/admin
- * action lives in the overlay menu. The selected list's items are fetched per
- * list (refetched on every switch). The old server-derived counts line is gone
- * (T39): the "To buy" section header counts the loaded TO_BUY rows instead.
+ * action lives in the overlay menu. T41: the selected list lives in the URL
+ * (`/lists/:listId`) — no component state — so Back/reload/deep links land on
+ * the same list; bare `/` and stale ids resolve to the first list.
  */
 export function ListsPage() {
+  const { listId } = useParams<{ listId: string }>();
+  const navigate = useNavigate();
   const lists = useLists();
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
   const listsData = lists.data ?? [];
-  // Falls back to the first list — covers initial load and deleting the selected list.
-  const selectedList = listsData.find((list) => list.id === selectedId) ?? listsData[0] ?? null;
+  // The route param is the only selection source; unknown ids (deleted list,
+  // foreign deep link) fall through to the redirect below.
+  const selectedList = listId ? (listsData.find((list) => list.id === listId) ?? null) : null;
   const items = useItems(selectedList?.id ?? null);
+
+  // `/` and stale ids resolve to the first list — replace, so Back/refresh
+  // never resurrect a dead selection. A no-lists user just stays put.
+  useEffect(() => {
+    if (!lists.isSuccess || selectedList) return;
+    const first = listsData[0];
+    if (first) navigate(`/lists/${first.id}`, { replace: true });
+  }, [lists.isSuccess, selectedList, listsData, navigate]);
 
   return (
     <div className="min-h-dvh bg-gray-50">
@@ -28,7 +38,7 @@ export function ListsPage() {
         <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-gray-900">
           {selectedList?.title ?? "My Groceries"}
         </h1>
-        <AppMenu selectedList={selectedList} onSelectList={setSelectedId} />
+        <AppMenu selectedList={selectedList} />
       </header>
 
       <main className="mx-auto max-w-md px-4 pb-40 pt-4">

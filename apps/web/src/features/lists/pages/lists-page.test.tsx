@@ -48,12 +48,26 @@ const ITEMS_L1 = {
 };
 const EMPTY_ITEMS = { items: [] };
 
-function renderPage() {
+/** Renders the pathname so tests can pin the URL-owned selection (T41). */
+function PageWithLocation() {
+  const location = useLocation();
+  return (
+    <>
+      <p data-testid="pathname">{location.pathname}</p>
+      <ListsPage />
+    </>
+  );
+}
+
+function renderPage(initialPath = "/") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <ListsPage />
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/" element={<PageWithLocation />} />
+          <Route path="/lists/:listId" element={<PageWithLocation />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -70,7 +84,8 @@ function renderPageWithRoutes() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <Routes>
-          <Route path="/" element={<ListsPage />} />
+          <Route path="/" element={<PageWithLocation />} />
+          <Route path="/lists/:listId" element={<PageWithLocation />} />
           <Route
             path="/lists/:listId/categories"
             element={<NavStateProbe label="categories-page" />}
@@ -120,6 +135,8 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "Weekly" })).toBeInTheDocument();
+    // T41: the selection lives in the URL — `/` resolved (replace) to /lists/l1.
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l1");
     const banner = screen.getByRole("banner");
     expect(within(banner).getByRole("heading", { name: "Weekly" })).toBeInTheDocument();
     expect(within(banner).getByRole("button", { name: "Menu" })).toBeInTheDocument();
@@ -183,6 +200,8 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     await user.click(partyRow);
 
     expect(screen.queryByTestId("menu-overlay")).not.toBeInTheDocument();
+    // T41 DoD: switching is a navigation — the URL carries the selection.
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l2");
     expect(screen.getByRole("heading", { name: "Party" })).toBeInTheDocument();
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l2/items")).toHaveLength(1));
     // T39: the count derives from the freshly fetched list's items (none).
@@ -193,9 +212,23 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     // count recalculates from the server data.
     await openMenu(user);
     await user.click(screen.getByRole("button", { name: "Weekly OWNER" }));
+    expect(await screen.findByTestId("pathname")).toHaveTextContent("/lists/l1");
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
     expect(await screen.findByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
     expect((await screen.findByTestId("item-row-i1")).textContent).toContain("Milk");
+  });
+
+  it("renders a non-first list straight from its URL (deep link, T41 repro 1 basis)", async () => {
+    const mock = createApiFetchMock();
+    stubDefaultRoutes(mock);
+    mock.stub();
+
+    renderPage("/lists/l2");
+
+    expect(await screen.findByRole("heading", { name: "Party" })).toBeInTheDocument();
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l2");
+    await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l2/items")).toHaveLength(1));
+    expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(0);
   });
 
   it("deletes the selected OWNER list from the menu and falls back to another list", async () => {
@@ -221,6 +254,8 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
 
     expect(mock.callsTo("DELETE", "/api/lists/l1")).toHaveLength(1);
     expect(screen.queryByTestId("menu-overlay")).not.toBeInTheDocument();
+    // The deleted id falls out of the URL to the first remaining list.
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l2"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Party" })).toBeInTheDocument());
   });
 
@@ -276,6 +311,7 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     const createCall = mock.callsTo("POST", "/api/lists")[0];
     expect(createCall?.body).toEqual({ title: "Party prep" });
     expect(screen.queryByTestId("menu-overlay")).not.toBeInTheDocument();
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l3");
     expect(screen.getByRole("heading", { name: "Party prep" })).toBeInTheDocument();
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l3/items")).toHaveLength(1));
   });
@@ -381,6 +417,8 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
 
     expect(await screen.findByRole("heading", { name: "My Groceries" })).toBeInTheDocument();
     expect(await screen.findByText("No lists yet — create one from the menu.")).toBeInTheDocument();
+    // No redirect: without lists there is no URL to resolve to.
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/");
 
     // The menu still works without a selected list: account + create only.
     await openMenu(user);

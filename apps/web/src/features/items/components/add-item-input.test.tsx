@@ -3,7 +3,7 @@ import type { Item, SuggestGroup } from "@grocery/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { createApiFetchMock, json } from "../../../test/mock-api";
 import "../../../test/setup";
@@ -60,8 +60,12 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <ListsPage />
+      {/* T41: ListsPage owns its selection through the route params. */}
+      <MemoryRouter initialEntries={["/lists/l1"]}>
+        <Routes>
+          <Route path="/" element={<ListsPage />} />
+          <Route path="/lists/:listId" element={<ListsPage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );

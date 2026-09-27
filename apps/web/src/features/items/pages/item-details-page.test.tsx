@@ -3,7 +3,7 @@ import type { ItemDetail, PriceObservation } from "@grocery/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../../stores/auth-store";
 import { stubImagePipeline, stubObjectUrls } from "../../../test/image-stub";
@@ -50,18 +50,43 @@ function detailFixture(over: Partial<ItemDetail> = {}): ItemDetail {
 
 let detail: ItemDetail;
 
-function renderPage(listId: string | null = "l1"): void {
+/** Renders the current pathname so tests can pin URL-owned navigation (T41). */
+function PathnameProbe() {
+  const location = useLocation();
+  return <p data-testid="pathname">{location.pathname}</p>;
+}
+
+/** The details page with a pathname probe rendered above it. */
+function DetailsWithLocation() {
+  return (
+    <>
+      <PathnameProbe />
+      <ItemDetailsPage />
+    </>
+  );
+}
+
+/**
+ * T41: the canonical details URL carries the list (`/lists/:listId/items/:id`);
+ * legacy `/items/:id` deep links resolve it from the payload instead.
+ */
+function renderPage(initialPath = "/lists/l1/items/i1"): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter
-        initialEntries={[
-          { pathname: "/items/i1", state: listId === null ? undefined : { listId } },
-        ]}
-      >
+      <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route path="/items/:itemId" element={<ItemDetailsPage />} />
-          <Route path="/" element={<p>lists-page</p>} />
+          <Route path="/lists/:listId/items/:itemId" element={<DetailsWithLocation />} />
+          <Route path="/items/:itemId" element={<DetailsWithLocation />} />
+          <Route
+            path="/lists/:listId"
+            element={
+              <>
+                <PathnameProbe />
+                <p>lists-page</p>
+              </>
+            }
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -262,15 +287,94 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     objectUrls.restore();
   });
 
-  it("shows the category read-only when the list context is missing (deep link)", async () => {
+  it("keeps a legacy /items/:id deep link fully working: list from the payload, editable category (T41 DoD)", async () => {
     const mock = createApiFetchMock();
     mock.on("GET", "/api/items/i1", () => json(200, detail));
+    // The resolution path: GET /search rows carry itemId → listId (docs/API.md).
+    mock.on("GET", "/api/search", () =>
+      json(200, {
+        results: [
+          { itemId: "i1", listId: "l1", title: "Milk", status: "TO_BUY", categoryColor: "#6B7280" },
+        ],
+      }),
+    );
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
     mock.stub();
-    renderPage(null);
+    renderPage("/items/i1");
+
+    // The category is editable (select, not read-only text) and the URL
+    // upgrades to the canonical nested route.
+    const select = await screen.findByRole("combobox", { name: "Category" });
+    expect(select).toHaveValue("c1");
+    expect(screen.getByRole("option", { name: "Dairy" })).toBeInTheDocument();
+    expect(await screen.findByTestId("pathname")).toHaveTextContent("/lists/l1/items/i1");
+  });
+
+  it("resolves the list from the loaded items cache without any search call (warm deep link)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.stub();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["items", "l1"], { items: [detail] });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/items/i1"]}>
+          <Routes>
+            <Route path="/items/:itemId" element={<DetailsWithLocation />} />
+            <Route path="/lists/:listId/items/:itemId" element={<DetailsWithLocation />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const select = await screen.findByRole("combobox", { name: "Category" });
+    expect(select).toHaveValue("c1");
+    expect(await screen.findByTestId("pathname")).toHaveTextContent("/lists/l1/items/i1");
+    expect(mock.callsTo("GET", "/api/search")).toHaveLength(0);
+  });
+
+  it("degrades to a read-only category when the payload cannot resolve the list", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    // Search answers, but not with this item — no list context resolvable.
+    mock.on("GET", "/api/search", () =>
+      json(200, {
+        results: [
+          {
+            itemId: "other",
+            listId: "lX",
+            title: "Milk",
+            status: "TO_BUY",
+            categoryColor: "#6B7280",
+          },
+        ],
+      }),
+    );
+    mock.stub();
+    renderPage("/items/i1");
 
     expect(await screen.findByText("Other")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Category" })).not.toBeInTheDocument();
-    expect(mock.calls.length).toBe(1);
+    // No redirect without a resolvable list; exactly detail + search happened.
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/items/i1");
+    expect(mock.calls.length).toBe(2);
+  });
+
+  it("Back returns explicitly to the item's list — a non-first one (T41 repro 1 DoD)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l2/categories", () => json(200, CATEGORIES));
+    mock.stub();
+    const user = userEvent.setup();
+    renderPage("/lists/l2/items/i1");
+
+    await screen.findByDisplayValue("Milk");
+    await user.click(screen.getByRole("button", { name: "Back to the list" }));
+
+    expect(await screen.findByText("lists-page")).toBeInTheDocument();
+    // The back target is the list from the URL — not the first list.
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l2");
   });
 
   it("shows an alert when the item cannot be loaded", async () => {
@@ -279,16 +383,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
       json(404, { error: { code: "NOT_FOUND", message: "Item not found" } }),
     );
     mock.stub();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/items/unknown"]}>
-          <Routes>
-            <Route path="/items/:itemId" element={<ItemDetailsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage("/items/unknown");
 
     expect(await screen.findByText(/Could not load this item/)).toBeInTheDocument();
   });

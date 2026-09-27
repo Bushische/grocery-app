@@ -66,9 +66,10 @@ export function CategoryItemsPage() {
                 key={item.id}
                 item={item}
                 onOpenDetails={(itemId) =>
-                  void navigate(`/items/${itemId}`, {
-                    state: { listId } satisfies CategoryItemsNavigationState,
-                  })
+                  // T41: the canonical details URL carries the list; when this
+                  // deep-linked view has no list context, the legacy route
+                  // resolves it from the item payload instead.
+                  void navigate(listId ? `/lists/${listId}/items/${itemId}` : `/items/${itemId}`)
                 }
               />
             ))}
