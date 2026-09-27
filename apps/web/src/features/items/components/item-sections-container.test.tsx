@@ -7,7 +7,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../../stores/auth-store";
 import { createApiFetchMock, json } from "../../../test/mock-api";
-import { useItems } from "../../lists/hooks/use-items";
+import { itemsQueryKey, useItems } from "../../lists/hooks/use-items";
+import { useCreateItem } from "../hooks/use-create-item";
 import { useReorderItems } from "../hooks/use-item-mutations";
 import { reorderedIdsAfterDrag } from "./item-sections";
 import { ItemSectionsContainer } from "./item-sections-container";
@@ -385,3 +386,177 @@ describe("ItemRow bought styling (docs/TASKS.md → T36)", () => {
 function rowBody(id: string): HTMLElement {
   return screen.getByTestId(`row-body-${id}`);
 }
+
+describe("To buy section header count (docs/TASKS.md → T39, client-derived)", () => {
+  afterEach(() => {
+    useAuthStore.setState({ accessToken: null, user: null });
+    vi.unstubAllGlobals();
+  });
+
+  /** useItems + ItemSectionsContainer, the same wiring as lists-page (T36). */
+  function renderCacheHarness(listId = "l1"): void {
+    function CacheHarness() {
+      const items = useItems(listId);
+      const all = items.data?.items ?? [];
+      return (
+        <ItemSectionsContainer
+          listId={listId}
+          toBuy={all.filter((entry) => entry.status === "TO_BUY")}
+          bought={all.filter((entry) => entry.status === "BOUGHT")}
+        />
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<CacheHarness />} />
+            <Route path="/items/:itemId" element={<p>details-page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("shows the count of the loaded TO_BUY rows; Bought has no counter (DoD)", () => {
+    renderContainer();
+
+    expect(screen.getByRole("heading", { name: "To buy (2)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bought" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Bought \(/ })).not.toBeInTheDocument();
+  });
+
+  it("decrements in the same optimistic frame as the row and rolls back on failure (DoD)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+
+    // Deferred move POSTs (T36 harness): the response is held back so the
+    // optimistic frame — where both the row style and the count change — can
+    // be asserted while the request is still pending.
+    const serverItems: { items: Item[] } = { items: [...TO_BUY, ...BOUGHT] };
+    const moveBodies: unknown[] = [];
+    const resolvers: Array<(response: Response) => void> = [];
+    const fakeResponse = (status: number, body?: unknown): Response =>
+      ({
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: "OK",
+        headers: new Headers(),
+        json: async () => body,
+      }) as Response;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(String(input), "http://localhost");
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET" && url.pathname === "/api/lists/l1/items") {
+          return fakeResponse(200, serverItems);
+        }
+        if (method === "POST" && url.pathname === "/api/items/i1/move") {
+          moveBodies.push(JSON.parse(String(init?.body)));
+          return new Promise((resolve) => resolvers.push(resolve));
+        }
+        throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+      }),
+    );
+
+    renderCacheHarness();
+    await screen.findByRole("heading", { name: "To buy (2)" });
+
+    // Buy: the row fades AND the count decrements in the same optimistic frame.
+    fireEvent.click(rowBody("i1"));
+    await waitFor(() => expect(screen.getByText("Milk")).toHaveClass("line-through"));
+    expect(screen.getByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
+    expect(moveBodies[0]).toEqual({ status: "bought" });
+    expect(resolvers).toHaveLength(1);
+
+    // The move fails: the rollback restores the row AND the count.
+    resolvers[0]!(fakeResponse(500, { error: { code: "INTERNAL_ERROR", message: "boom" } }));
+    await waitFor(() => expect(screen.getByText("Milk")).not.toHaveClass("line-through"));
+    expect(screen.getByRole("heading", { name: "To buy (2)" })).toBeInTheDocument();
+  });
+
+  it("increments after a create via the items invalidation refetch (DoD)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    let serverItems: { items: Item[] } = { items: [...TO_BUY, ...BOUGHT] };
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/lists/l1/items", () => json(200, serverItems));
+    mock.on("POST", "/api/lists/l1/items", () => {
+      const created = item("i4", "Melon", "TO_BUY", 2);
+      serverItems = { items: [...serverItems.items, created] };
+      return json(201, created);
+    });
+    mock.stub();
+
+    function CreateHarness() {
+      const create = useCreateItem("l1");
+      const items = useItems("l1");
+      const all = items.data?.items ?? [];
+      return (
+        <div>
+          <button type="button" onClick={() => create.mutate("Melon")}>
+            trigger-create
+          </button>
+          <ItemSectionsContainer
+            listId="l1"
+            toBuy={all.filter((entry) => entry.status === "TO_BUY")}
+            bought={all.filter((entry) => entry.status === "BOUGHT")}
+          />
+        </div>
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <CreateHarness />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "To buy (2)" });
+
+    fireEvent.click(screen.getByRole("button", { name: "trigger-create" }));
+    await waitFor(() => expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(1));
+    // The create invalidates ["items", l1]; the refetched cache carries the new
+    // TO_BUY row and the header recomputes.
+    expect(await screen.findByRole("heading", { name: "To buy (3)" })).toBeInTheDocument();
+  });
+
+  it("recomputes on a delete-style invalidation refetch (the count follows the cache)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    // The UI has no item-delete affordance yet (T18 has none) — this exercises
+    // the exact path any item delete takes: invalidate ["items", listId] (what
+    // useInvalidateItemCaches does) → refetch without the deleted row.
+    let serverItems: { items: Item[] } = { items: [...TO_BUY, ...BOUGHT] };
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/lists/l1/items", () => json(200, serverItems));
+    mock.stub();
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function CacheHarness() {
+      const items = useItems("l1");
+      const all = items.data?.items ?? [];
+      return (
+        <ItemSectionsContainer
+          listId="l1"
+          toBuy={all.filter((entry) => entry.status === "TO_BUY")}
+          bought={all.filter((entry) => entry.status === "BOUGHT")}
+        />
+      );
+    }
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <CacheHarness />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "To buy (2)" });
+
+    serverItems = { items: [TO_BUY[1]!, ...BOUGHT] }; // i1 was deleted server-side
+    queryClient.invalidateQueries({ queryKey: itemsQueryKey("l1") });
+    expect(await screen.findByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
+  });
+});

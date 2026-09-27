@@ -130,10 +130,15 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     expect(screen.queryByText("alex@example.com")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
 
-    // The main screen itself is unaffected: counts + items.
-    expect(screen.getByText("2 to buy · 1 bought")).toBeInTheDocument();
+    // The main screen itself is unaffected: items load. T39: the "To buy"
+    // header counts the loaded cache (1 TO_BUY here) — not the server's
+    // itemCounts (= 2) — and the old server-counts line is gone.
+    expect(await screen.findByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
     expect((await screen.findByTestId("item-row-i1")).textContent).toContain("Milk");
     expect(screen.getByText("Bread")).toBeInTheDocument();
+    expect(screen.queryByText("2 to buy · 1 bought")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bought" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Bought \(/ })).not.toBeInTheDocument();
     expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(1);
   });
 
@@ -180,13 +185,16 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     expect(screen.queryByTestId("menu-overlay")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Party" })).toBeInTheDocument();
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l2/items")).toHaveLength(1));
-    expect(screen.getByText("0 to buy · 0 bought")).toBeInTheDocument();
+    // T39: the count derives from the freshly fetched list's items (none).
+    expect(await screen.findByRole("heading", { name: "To buy (0)" })).toBeInTheDocument();
     expect(screen.getByText("No items to buy.")).toBeInTheDocument();
 
-    // Switching back refetches the first list again (staleTime 0).
+    // Switching back refetches the first list again (staleTime 0) — T39: the
+    // count recalculates from the server data.
     await openMenu(user);
     await user.click(screen.getByRole("button", { name: "Weekly OWNER" }));
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
+    expect(await screen.findByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
     expect((await screen.findByTestId("item-row-i1")).textContent).toContain("Milk");
   });
 

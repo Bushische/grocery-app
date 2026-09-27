@@ -40,7 +40,9 @@ export interface ItemSectionsProps {
  * drag-and-drop reordering, "bought" below. Dragging is allowed only via the ≡
  * handle: TouchSensor (150 ms delay, 5 px tolerance) + MouseSensor, never a
  * plain pointer drag of the row body — that is reserved for long-press details.
- * Tapping the row body toggles the item's status (T27).
+ * Tapping the row body toggles the item's status (T27). The "To buy" header
+ * carries the client-derived count of the loaded TO_BUY rows (T39 — the old
+ * server-derived counts line was removed); "Bought" has no counter.
  */
 export function ItemSections({
   toBuy,
@@ -73,7 +75,10 @@ export function ItemSections({
   return (
     <div className="space-y-6">
       <section aria-label="To buy">
-        <h2 className="text-sm font-semibold text-gray-900">To buy</h2>
+        {/* T39: the count is derived from the loaded items cache (the `toBuy`
+            prop) — optimistic move/create/delete cache updates recompute it in
+            the same frame as the rows; no server round-trip is involved. */}
+        <h2 className="text-sm font-semibold text-gray-900">To buy ({toBuy.length})</h2>
         {toBuy.length === 0 ? (
           <p className="mt-2 text-sm text-gray-500">No items to buy.</p>
         ) : (

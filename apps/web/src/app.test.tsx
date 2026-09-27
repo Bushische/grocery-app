@@ -52,7 +52,10 @@ describe("auth flow (docs/TASKS.md → T14 Definition of Done)", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByText("Weekly")).toBeInTheDocument();
-    expect(screen.getByText("5 to buy · 2 bought")).toBeInTheDocument();
+    // T39: the count is client-derived from the loaded items cache (empty here),
+    // NOT the server's itemCounts (= 5) — the old counts line is gone.
+    expect(await screen.findByRole("heading", { name: "To buy (0)" })).toBeInTheDocument();
+    expect(screen.queryByText("5 to buy · 2 bought")).not.toBeInTheDocument();
 
     // The account block lives in the overlay menu (T30).
     await user.click(screen.getByRole("button", { name: "Menu" }));

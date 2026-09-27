@@ -375,19 +375,23 @@ describe("AddItemInput explicit create (docs/TASKS.md → T26)", () => {
     const mock = createApiFetchMock();
     mock.on("POST", "/api/auth/refresh", () => json(200, { accessToken: "token-1", user: USER }));
     mock.on("GET", "/api/lists", () => json(200, LISTS));
-    mock.on("GET", "/api/lists/l1/items", () =>
-      json(200, {
-        items: [item({ id: "i10", title: "Watermelon", status: "TO_BUY", category: OTHER })],
-      }),
-    );
+    // T39: the header count derives from the loaded cache — the refetch after
+    // the create now carries the new row, so the count moves 1 → 2.
+    let serverItems: { items: Item[] } = {
+      items: [item({ id: "i10", title: "Watermelon", status: "TO_BUY", category: OTHER })],
+    };
+    const created = item({ id: "i11", title: "melon", status: "TO_BUY", category: OTHER });
+    mock.on("GET", "/api/lists/l1/items", () => json(200, serverItems));
     mock.on("GET", "/api/items/suggest", () => json(200, WATERMELON_GROUP));
-    mock.on("POST", "/api/lists/l1/items", () =>
-      json(201, item({ id: "i11", title: "melon", status: "TO_BUY", category: OTHER })),
-    );
+    mock.on("POST", "/api/lists/l1/items", () => {
+      serverItems = { items: [...serverItems.items, created] };
+      return json(201, created);
+    });
     mock.stub();
     const user = userEvent.setup();
 
     renderPage();
+    expect(await screen.findByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
     await screen.findByTestId("add-item-bar");
 
     await user.type(screen.getByLabelText("Add item"), "melon");
@@ -397,6 +401,7 @@ describe("AddItemInput explicit create (docs/TASKS.md → T26)", () => {
     // The invalidation refreshes both the item list and the list counts.
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists")).toHaveLength(2));
+    expect(await screen.findByRole("heading", { name: "To buy (2)" })).toBeInTheDocument();
   });
 });
 
