@@ -223,3 +223,15 @@ export type PriceObservation = z.infer<typeof priceObservationSchema>;
 /** Response of `GET /items/:id` — the item plus its price history, newest first. */
 export const itemDetailSchema = itemSchema.extend({ prices: z.array(priceObservationSchema) });
 export type ItemDetail = z.infer<typeof itemDetailSchema>;
+
+// --- Item images (docs/API.md → Items — image; docs/TASKS.md → T10) ---
+
+/** Max multipart upload size for item images (docs/API.md → Items: "< 2 MB"). */
+export const MAX_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024;
+
+/** Longest edge of the server-side-resized webp (docs/TASKS.md → T10: 600 px). */
+export const MAX_IMAGE_DIMENSION = 600;
+
+/** Response of `POST /items/:id/image` — the content-addressed filename under /static. */
+export const itemImageResponseSchema = z.object({ imageFilename: z.string().min(1) });
+export type ItemImageResponse = z.infer<typeof itemImageResponseSchema>;

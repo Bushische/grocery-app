@@ -1,9 +1,13 @@
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ListRole, SmartAddResponse } from "@grocery/shared";
 import { createId } from "@paralleldrive/cuid2";
 import { hashSync } from "bcryptjs";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { beforeAll, describe, expect, it } from "vitest";
+import sharp from "sharp";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app";
 import { loadConfig } from "../config";
 import { type Db, createDb, createSqlite } from "../db/client";
@@ -28,13 +32,19 @@ let outsiderToken: string;
 let familyListId: string;
 let otherCategoryId: string;
 
+/** Isolated uploads root so image tests never touch real data/. */
+const uploadsDir = mkdtempSync(join(tmpdir(), "grocery-items-"));
+
 const DAY_MS = 86_400_000;
 
 function buildTestApp(): { app: FastifyInstance; db: Db } {
   const sqlite = createSqlite(":memory:");
   const database = createDb(sqlite);
   runMigrations(database);
-  const built = buildApp(loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }), { db: database });
+  const built = buildApp(
+    loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", UPLOADS_PATH: uploadsDir }),
+    { db: database },
+  );
   return { app: built, db: database };
 }
 
@@ -1045,5 +1055,192 @@ describe("POST /items/:id/move", () => {
     });
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe("UNAUTHORIZED");
+  });
+});
+
+describe("POST /items/:id/image", () => {
+  /** PNG of the given size — `compressionLevel: 0` makes big files for bodyLimit tests. */
+  async function pngOf(width: number, height: number, compressionLevel = 6): Promise<Buffer> {
+    return sharp({
+      create: { width, height, channels: 3, background: { r: 30, g: 144, b: 255 } },
+    })
+      .png({ compressionLevel })
+      .toBuffer();
+  }
+
+  function upload(
+    itemId: string,
+    bytes: Buffer,
+    token = editorToken,
+    filename = "photo.png",
+    contentType = "image/png",
+  ) {
+    const form = new FormData();
+    form.append("image", new Blob([bytes], { type: contentType }), filename);
+    return app.inject({
+      method: "POST",
+      url: `/items/${itemId}/image`,
+      headers: bearer(token),
+      payload: form,
+    });
+  }
+
+  function filesInUploads(): string[] {
+    return readdirSync(uploadsDir).sort();
+  }
+
+  afterEach(() => {
+    for (const entry of readdirSync(uploadsDir)) {
+      rmSync(join(uploadsDir, entry));
+    }
+  });
+
+  it("stores a resized webp under a content-addressed name and serves it from /static", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Milk", sortOrder: 0 });
+
+    const res = await upload(item.id, await pngOf(1200, 800));
+    expect(res.statusCode).toBe(200);
+    const { imageFilename } = res.json();
+    // <itemId>-<sha256 of the output bytes>.webp (content-addressed per T10)
+    expect(imageFilename).toMatch(new RegExp(`^${item.id}-[0-9a-f]{64}\\.webp$`));
+    expect(itemById(item.id)?.imageFilename).toBe(imageFilename);
+
+    const filePath = join(uploadsDir, imageFilename);
+    expect(readFileSync(filePath)).toBeDefined();
+
+    const metadata = await sharp(filePath).metadata();
+    expect(metadata.format).toBe("webp");
+    expect(metadata.width).toBeLessThanOrEqual(600);
+    expect(metadata.height).toBeLessThanOrEqual(600);
+
+    const served = await app.inject({ method: "GET", url: `/static/${imageFilename}` });
+    expect(served.statusCode).toBe(200);
+    expect(served.headers["content-type"]).toBe("image/webp");
+    expect(served.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+    expect(served.rawPayload.equals(readFileSync(filePath))).toBe(true);
+  });
+
+  it("never enlarges a small image", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Butter", sortOrder: 1 });
+    const res = await upload(item.id, await pngOf(64, 64));
+    expect(res.statusCode).toBe(200);
+    const metadata = await sharp(join(uploadsDir, res.json().imageFilename)).metadata();
+    expect(metadata.width).toBe(64);
+    expect(metadata.height).toBe(64);
+  });
+
+  it("accepts a valid image just above the default 1 MiB body limit (route bodyLimit covers 2 MB)", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Big Photo", sortOrder: 2 });
+    const res = await upload(item.id, await pngOf(700, 700, 0));
+    expect(res.statusCode).toBe(200);
+    const metadata = await sharp(join(uploadsDir, res.json().imageFilename as string)).metadata();
+    expect(metadata.width).toBeLessThanOrEqual(600);
+    expect(metadata.height).toBeLessThanOrEqual(600);
+  });
+
+  it("changes the URL on re-upload and removes the superseded file", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Cheese", sortOrder: 3 });
+
+    const first = await upload(item.id, await pngOf(800, 600));
+    expect(first.statusCode).toBe(200);
+    const firstFilename = first.json().imageFilename as string;
+    expect(filesInUploads()).toEqual([firstFilename]);
+
+    const second = await upload(item.id, await pngOf(600, 600));
+    expect(second.statusCode).toBe(200);
+    const secondFilename = second.json().imageFilename as string;
+    expect(secondFilename).not.toBe(firstFilename);
+    expect(itemById(item.id)?.imageFilename).toBe(secondFilename);
+
+    // Content-addressed: the old URL's bytes are gone, the new one is served.
+    expect(filesInUploads()).toEqual([secondFilename]);
+    const oldUrl = await app.inject({ method: "GET", url: `/static/${firstFilename}` });
+    expect(oldUrl.statusCode).toBe(404);
+    const newUrl = await app.inject({ method: "GET", url: `/static/${secondFilename}` });
+    expect(newUrl.statusCode).toBe(200);
+  });
+
+  it("is idempotent for identical bytes (same content hash → same URL)", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Pasta", sortOrder: 4 });
+    const bytes = await pngOf(300, 200);
+    const first = await upload(item.id, bytes);
+    const second = await upload(item.id, bytes);
+    expect(second.json().imageFilename).toBe(first.json().imageFilename);
+    expect(filesInUploads()).toEqual([first.json().imageFilename]);
+  });
+
+  it("rejects an oversize file with 400 and stores nothing", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Huge", sortOrder: 5 });
+    const oversize = Buffer.alloc(2 * 1024 * 1024 + 1024, 7);
+    const res = await upload(item.id, oversize);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    expect(itemById(item.id)?.imageFilename).toBeNull();
+    expect(filesInUploads()).toEqual([]);
+  });
+
+  it("rejects bytes that are not a valid image with 400 and stores nothing", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Junk", sortOrder: 6 });
+    const res = await upload(item.id, Buffer.from("definitely not an image", "utf8"));
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    expect(itemById(item.id)?.imageFilename).toBeNull();
+    expect(filesInUploads()).toEqual([]);
+  });
+
+  it("rejects a multipart body without a file part with 400", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "No File", sortOrder: 7 });
+    const form = new FormData();
+    form.append("image", "just a text field");
+    const res = await app.inject({
+      method: "POST",
+      url: `/items/${item.id}/image`,
+      headers: bearer(editorToken),
+      payload: form,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    expect(itemById(item.id)?.imageFilename).toBeNull();
+  });
+
+  it("rejects a non-multipart body with 400", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Json Body", sortOrder: 8 });
+    const res = await app.inject({
+      method: "POST",
+      url: `/items/${item.id}/image`,
+      headers: bearer(editorToken),
+      payload: { image: "base64-or-whatever" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects VIEWER and non-members with 403 and stores nothing", async () => {
+    const listId = await createScratchList("Image Roles");
+    const item = seedItem(listId, otherCategoryOf(listId).id, {
+      title: "Milk",
+      sortOrder: 0,
+    });
+    for (const token of [viewerToken, outsiderToken]) {
+      const res = await upload(item.id, await pngOf(100, 100), token);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("FORBIDDEN");
+    }
+    expect(itemById(item.id)?.imageFilename).toBeNull();
+    expect(filesInUploads()).toEqual([]);
+  });
+
+  it("rejects an unknown item with 404", async () => {
+    const res = await upload("does-not-exist", await pngOf(100, 100), ownerToken);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+
+  it("rejects a missing token with 401", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Anon", sortOrder: 9 });
+    const res = await app.inject({ method: "POST", url: `/items/${item.id}/image` });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("UNAUTHORIZED");
+    expect(itemById(item.id)?.imageFilename).toBeNull();
   });
 });

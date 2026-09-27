@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   API_BASE_PATH,
+  MAX_IMAGE_DIMENSION,
+  MAX_IMAGE_UPLOAD_BYTES,
   addListMemberRequestSchema,
   categorySchema,
   createCategoryRequestSchema,
@@ -8,6 +10,7 @@ import {
   createListRequestSchema,
   hexColorSchema,
   itemDetailSchema,
+  itemImageResponseSchema,
   itemSchema,
   itemStatusByFilter,
   itemStatusFilterSchema,
@@ -298,5 +301,20 @@ describe("moveItemRequestSchema", () => {
     expect(moveItemRequestSchema.safeParse({ status: "TO_BUY" }).success).toBe(false);
     expect(moveItemRequestSchema.safeParse({ status: "all" }).success).toBe(false);
     expect(moveItemRequestSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("item image schemas", () => {
+  it("exposes the 2 MB upload limit and 600 px resize edge from the contracts", () => {
+    expect(MAX_IMAGE_UPLOAD_BYTES).toBe(2 * 1024 * 1024);
+    expect(MAX_IMAGE_DIMENSION).toBe(600);
+  });
+
+  it("itemImageResponseSchema requires the imageFilename", () => {
+    expect(itemImageResponseSchema.parse({ imageFilename: "i1-abc.webp" })).toEqual({
+      imageFilename: "i1-abc.webp",
+    });
+    expect(itemImageResponseSchema.safeParse({}).success).toBe(false);
+    expect(itemImageResponseSchema.safeParse({ imageFilename: "" }).success).toBe(false);
   });
 });

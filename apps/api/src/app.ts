@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import { MAX_IMAGE_UPLOAD_BYTES } from "@grocery/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "./config";
 import { type Db, createDb, createSqlite } from "./db/client";
@@ -17,9 +18,14 @@ import { healthRoutes } from "./routes/health";
 import { itemRoutes } from "./routes/items";
 import { listRoutes } from "./routes/lists";
 
-const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-
 export type AppDependencies = { db?: Db };
+
+/** The uploads directory, decorated onto the instance for image writes (T10). */
+declare module "fastify" {
+  interface FastifyInstance {
+    uploadsRoot: string;
+  }
+}
 
 export function buildApp(config: AppConfig, dependencies: AppDependencies = {}): FastifyInstance {
   const uploadsRoot = resolve(config.uploadsPath);
@@ -39,10 +45,12 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   // injects the real on-disk database.
   registerDb(app, dependencies.db ?? createDb(createSqlite(":memory:")));
 
+  app.decorate("uploadsRoot", uploadsRoot);
+
   app.register(helmet, { crossOriginResourcePolicy: { policy: "cross-origin" } });
   app.register(cors, { credentials: true, origin: config.corsOrigins });
   app.register(cookie);
-  app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES } });
+  app.register(multipart, { limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES } });
   // T4.5: images are content-addressed (T10: `<id>-<hash>.webp`), so bytes at a
   // URL never change — cache them forever; a re-upload changes the URL instead.
   // The default ETag stays enabled as a fallback for non-immutable use.

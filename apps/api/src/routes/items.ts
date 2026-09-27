@@ -1,6 +1,8 @@
 import {
+  MAX_IMAGE_UPLOAD_BYTES,
   createItemRequestSchema,
   itemDetailSchema,
+  itemImageResponseSchema,
   itemSchema,
   itemStatusByFilter,
   itemStatusFilterSchema,
@@ -12,12 +14,27 @@ import {
 } from "@grocery/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { FastifyHttpError } from "../errors";
 import { requireAuth } from "../plugins/auth";
 import { requireItemRole, requireListRole } from "../plugins/list-auth";
+import * as imageService from "../services/imageService";
 import * as itemService from "../services/itemService";
 
 const listIdParamsSchema = z.object({ id: z.string().min(1) });
 const itemIdParamsSchema = z.object({ id: z.string().min(1) });
+
+/** Multipart framing overhead on top of the 2 MB file limit. */
+const IMAGE_BODY_LIMIT = MAX_IMAGE_UPLOAD_BYTES + 64 * 1024;
+
+/** Matches the @fastify/multipart file-size error (mapped to 400 per T10 DoD). */
+function isFileTooLarge(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === "FST_REQ_FILE_TOO_LARGE"
+  );
+}
 
 export async function itemRoutes(app: FastifyInstance): Promise<void> {
   const db = app.db;
@@ -81,6 +98,45 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
       const { id } = itemIdParamsSchema.parse(request.params);
       const { status } = moveItemRequestSchema.parse(request.body);
       return itemSchema.parse(itemService.moveItem(db, id, itemStatusByFilter[status]));
+    },
+  );
+
+  app.post(
+    "/items/:id/image",
+    {
+      preHandler: [requireAuth, requireItemRole("EDITOR")],
+      // The multipart body includes framing around the file, so it may exceed
+      // the 2 MB file limit; the app-wide 1 MiB default would reject valid
+      // uploads before multipart sees them.
+      bodyLimit: IMAGE_BODY_LIMIT,
+    },
+    async (request) => {
+      const { id } = itemIdParamsSchema.parse(request.params);
+      if (!request.isMultipart()) {
+        throw new FastifyHttpError(400, "VALIDATION_ERROR", "Expected a multipart/form-data body");
+      }
+      let bytes: Buffer;
+      try {
+        const file = await request.file();
+        if (!file) {
+          throw new FastifyHttpError(400, "VALIDATION_ERROR", "Missing image file field");
+        }
+        bytes = await file.toBuffer();
+      } catch (error) {
+        if (error instanceof FastifyHttpError) {
+          throw error;
+        }
+        if (isFileTooLarge(error)) {
+          throw new FastifyHttpError(
+            400,
+            "VALIDATION_ERROR",
+            `Image exceeds the ${MAX_IMAGE_UPLOAD_BYTES} byte upload limit`,
+          );
+        }
+        throw error;
+      }
+      const imageFilename = await imageService.saveItemImage(db, id, app.uploadsRoot, bytes);
+      return itemImageResponseSchema.parse({ imageFilename });
     },
   );
 
