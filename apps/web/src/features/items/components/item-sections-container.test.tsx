@@ -114,7 +114,7 @@ describe("useReorderItems (T16 reorder persistence)", () => {
   });
 });
 
-describe("ItemSectionsContainer (docs/TASKS.md → T16)", () => {
+describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap toggle)", () => {
   afterEach(() => {
     useAuthStore.setState({ accessToken: null, user: null });
     vi.useRealTimers();
@@ -137,7 +137,34 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16)", () => {
     expect(screen.queryByTestId("handle-i3")).not.toBeInTheDocument();
   });
 
-  it("calls POST /items/:id/move when the buy toggle is pressed", async () => {
+  it("toggles TO_BUY → BOUGHT when the row body is tapped (T27 DoD)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mock.on("POST", "/api/items/i1/move", () => json(200, { ...TO_BUY[0]!, status: "BOUGHT" }));
+    mock.stub();
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark Milk as bought" }));
+
+    await waitFor(() => expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(1));
+    expect(mock.callsTo("POST", "/api/items/i1/move")[0]?.body).toEqual({ status: "bought" });
+    expect(mock.callsTo("POST", "/api/lists/l1/items/reorder")).toHaveLength(0);
+  });
+
+  it("toggles BOUGHT → TO_BUY when a bought row is tapped (T27 DoD, both directions)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mock.on("POST", "/api/items/i3/move", () => json(200, { ...BOUGHT[0]!, status: "TO_BUY" }));
+    mock.stub();
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Move Butter back to to buy" }));
+
+    await waitFor(() => expect(mock.callsTo("POST", "/api/items/i3/move")).toHaveLength(1));
+    expect(mock.callsTo("POST", "/api/items/i3/move")[0]?.body).toEqual({ status: "to_buy" });
+  });
+
+  it("toggles from the keyboard (Enter on the focused row body)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.on("POST", "/api/items/i1/move", () => json(200, { ...TO_BUY[0]!, status: "BOUGHT" }));
@@ -145,14 +172,27 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16)", () => {
     const user = userEvent.setup();
     renderContainer();
 
-    await user.click(screen.getByRole("button", { name: "Mark Milk as bought" }));
+    rowBody("i1").focus();
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(1));
-    expect(mock.callsTo("POST", "/api/items/i1/move")[0]?.body).toEqual({ status: "bought" });
-    expect(mock.callsTo("POST", "/api/lists/l1/items/reorder")).toHaveLength(0);
   });
 
-  it("navigates to the details page on a 500 ms long-press of the row body (DoD)", async () => {
+  it("does not toggle when the drag handle is tapped (handle is drag-only)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mock.stub();
+    renderContainer();
+
+    // jsdom cannot drive real dnd-kit drags (no layout — T16 finding); the
+    // closest pin is that the handle itself never toggles: drags start (and
+    // post-drag clicks land) at the handle/section level, never on the row body.
+    fireEvent.click(screen.getByTestId("handle-i1"));
+
+    expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
+  });
+
+  it("navigates to the details page on a 500 ms long-press of the row body (DoD) without toggling", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.stub();
@@ -167,6 +207,7 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16)", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     expect(await screen.findByText("details-page")).toBeInTheDocument();
+    expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 
   it("does not open details when the touch moves (scroll protection)", async () => {
@@ -182,9 +223,28 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16)", () => {
     await vi.advanceTimersByTime(600);
 
     expect(screen.queryByText("details-page")).not.toBeInTheDocument();
+    expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 
-  it("opens details on right-click (desktop)", async () => {
+  it("does not toggle when the press turned into a scroll (move > 10 px, then a late click)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mock.stub();
+    renderContainer();
+
+    // A scroll gesture: some browsers still emit a trailing click after the
+    // pointerup — the row must suppress it (gesture disambiguation, T27 DoD).
+    const body = rowBody("i1");
+    fireEvent.pointerDown(body, { pointerType: "touch", clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(body, { pointerType: "touch", clientX: 10, clientY: 60 });
+    fireEvent.pointerUp(body, { pointerType: "touch", clientX: 10, clientY: 60 });
+    fireEvent.click(body);
+
+    expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
+    expect(screen.queryByText("details-page")).not.toBeInTheDocument();
+  });
+
+  it("opens details on right-click (desktop) without toggling", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.stub();
@@ -193,12 +253,11 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16)", () => {
     fireEvent.contextMenu(rowBody("i1"));
 
     expect(await screen.findByText("details-page")).toBeInTheDocument();
+    expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 });
 
-/** The long-press / right-click surface: the row's body div. */
+/** The row body: the tappable/long-pressable surface (a <button> since T27). */
 function rowBody(id: string): HTMLElement {
-  const body = screen.getByTestId(`item-row-${id}`).querySelector("div");
-  if (!body) throw new Error("row body missing");
-  return body as HTMLElement;
+  return screen.getByTestId(`row-body-${id}`);
 }

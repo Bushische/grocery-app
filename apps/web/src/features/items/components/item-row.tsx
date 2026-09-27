@@ -9,30 +9,33 @@ export interface ItemRowProps {
   sortable: boolean;
   onMove: (status: "bought" | "to_buy") => void;
   onOpenDetails: (itemId: string) => void;
-  movePending?: boolean;
 }
 
 /**
  * One list row per docs/PROJECT.md → UX: left vertical category color bar,
  * title, optional quantity text, "3d" badge, and (TO_BUY only) a ≡ drag handle.
- * Dragging starts only from the handle (TouchSensor: 150 ms delay, 5 px
- * tolerance — configured by the surrounding DndContext); long-press (500 ms) /
- * right-click on the row body opens the item details; the Buy/Unbuy button is
- * its own ≥ 40 px touch target.
+ *
+ * T27: the whole row body is the toggle — tapping it moves the item
+ * (TO_BUY → BOUGHT / BOUGHT → TO_BUY via `POST /items/:id/move`); the dedicated
+ * Buy/Unbuy button is gone. Gesture disambiguation: drags start only from the ≡
+ * handle (TouchSensor: 150 ms delay, 5 px tolerance — configured by the
+ * surrounding DndContext), a long-press (500 ms) / right-click on the row body
+ * opens the item details instead, and a press that moved > 10 px was a scroll —
+ * its trailing click never toggles. The handle itself is drag-only: a tap on it
+ * is a failed drag attempt, never a toggle.
  */
-export function ItemRow({
-  item,
-  sortable,
-  onMove,
-  onOpenDetails,
-  movePending = false,
-}: ItemRowProps) {
+export function ItemRow({ item, sortable, onMove, onOpenDetails }: ItemRowProps) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({
       id: item.id,
       disabled: !sortable,
     });
-  const longPress = useLongPress(() => onOpenDetails(item.id));
+  const { movedSinceDown, ...pressHandlers } = useLongPress(() => onOpenDetails(item.id));
+
+  function handleTap() {
+    if (movedSinceDown.current) return;
+    onMove(item.status === "TO_BUY" ? "bought" : "to_buy");
+  }
 
   return (
     <li
@@ -45,13 +48,21 @@ export function ItemRow({
       className="flex items-stretch overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200"
       data-testid={`item-row-${item.id}`}
     >
-      <div
-        {...longPress}
+      <button
+        type="button"
+        {...pressHandlers}
+        onClick={handleTap}
         onContextMenu={(event) => {
           event.preventDefault();
           onOpenDetails(item.id);
         }}
-        className="flex min-h-11 flex-1 items-stretch"
+        aria-label={
+          item.status === "TO_BUY"
+            ? `Mark ${item.title} as bought`
+            : `Move ${item.title} back to to buy`
+        }
+        data-testid={`row-body-${item.id}`}
+        className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-stretch text-left"
       >
         <span
           aria-hidden="true"
@@ -70,19 +81,6 @@ export function ItemRow({
         >
           {item.daysInList}d
         </span>
-      </div>
-      <button
-        type="button"
-        onClick={() => onMove(item.status === "TO_BUY" ? "bought" : "to_buy")}
-        disabled={movePending}
-        aria-label={
-          item.status === "TO_BUY"
-            ? `Mark ${item.title} as bought`
-            : `Move ${item.title} back to to buy`
-        }
-        className="min-h-11 min-w-11 shrink-0 px-3 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-      >
-        {item.status === "TO_BUY" ? "Buy" : "Unbuy"}
       </button>
       {sortable ? (
         <button

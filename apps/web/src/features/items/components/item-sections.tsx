@@ -30,7 +30,6 @@ export function reorderedIdsAfterDrag(
 export interface ItemSectionsProps {
   toBuy: Item[];
   bought: Item[];
-  movePending: boolean;
   onReorder: (orderedIds: string[]) => void;
   onMove: (itemId: string, status: "bought" | "to_buy") => void;
   onOpenDetails: (itemId: string) => void;
@@ -41,11 +40,11 @@ export interface ItemSectionsProps {
  * drag-and-drop reordering, "bought" below. Dragging is allowed only via the ≡
  * handle: TouchSensor (150 ms delay, 5 px tolerance) + MouseSensor, never a
  * plain pointer drag of the row body — that is reserved for long-press details.
+ * Tapping the row body toggles the item's status (T27).
  */
 export function ItemSections({
   toBuy,
   bought,
-  movePending,
   onReorder,
   onMove,
   onOpenDetails,
@@ -93,7 +92,6 @@ export function ItemSections({
                     key={item.id}
                     item={item}
                     sortable
-                    movePending={movePending}
                     onMove={(status) => onMove(item.id, status)}
                     onOpenDetails={onOpenDetails}
                   />
@@ -114,7 +112,6 @@ export function ItemSections({
                 key={item.id}
                 item={item}
                 sortable={false}
-                movePending={movePending}
                 onMove={(status) => onMove(item.id, status)}
                 onOpenDetails={onOpenDetails}
               />
