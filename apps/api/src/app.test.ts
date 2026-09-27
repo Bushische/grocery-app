@@ -1,10 +1,14 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
+
+// chmod cannot stop root from writing (DAC bypass), so the read-only boot
+// cases are only meaningful for a non-root test process (T38).
+const runningAsRoot = typeof process.getuid === "function" && process.getuid() === 0;
 
 let app: FastifyInstance;
 
@@ -87,6 +91,70 @@ describe("plugins", () => {
   it("registers @fastify/helmet security headers", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+});
+
+describe("uploads writability self-check (T38)", () => {
+  it.skipIf(runningAsRoot)(
+    "fails fast in production with the actionable message on a read-only uploads path",
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "grocery-uploads-readonly-"));
+      chmodSync(dir, 0o500);
+      try {
+        expect(() =>
+          buildApp(
+            loadConfig({
+              NODE_ENV: "production",
+              LOG_LEVEL: "silent",
+              JWT_SECRET: "test-only-production-secret",
+              CORS_ORIGIN: "https://grocery.example.com",
+              UPLOADS_PATH: dir,
+            }),
+          ),
+        ).toThrow(/not writable[\s\S]*chown -R 100:101/);
+      } finally {
+        chmodSync(dir, 0o700);
+      }
+    },
+  );
+
+  it("warns and keeps booting outside production on a read-only uploads path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "grocery-uploads-readonly-dev-"));
+    chmodSync(dir, 0o500);
+    try {
+      const devApp = buildApp(
+        loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", UPLOADS_PATH: dir }),
+      );
+      await devApp.ready();
+      try {
+        const res = await devApp.inject({ method: "GET", url: "/health" });
+        expect(res.statusCode).toBe(200);
+      } finally {
+        await devApp.close();
+      }
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+  });
+
+  it("boots normally when the uploads path is writable", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "grocery-uploads-writable-"));
+    const writableApp = buildApp(
+      loadConfig({
+        NODE_ENV: "production",
+        LOG_LEVEL: "silent",
+        JWT_SECRET: "test-only-production-secret",
+        CORS_ORIGIN: "https://grocery.example.com",
+        UPLOADS_PATH: dir,
+      }),
+    );
+    await writableApp.ready();
+    try {
+      const res = await writableApp.inject({ method: "GET", url: "/health" });
+      expect(res.statusCode).toBe(200);
+    } finally {
+      await writableApp.close();
+    }
   });
 });
 
