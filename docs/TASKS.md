@@ -461,3 +461,16 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
 - **Definition of Done:** test: read-only uploads path → boot fails (prod) with the actionable
   message; writable path → boots normally; existing boot tests green.
 - **Dependencies:** T4.5 (config), T21.
+
+### T39 — List counts line updates after item mutations *(bugfix)*
+- **Goal:** Fix: the "N to buy · M bought" line stays stale after add/smart-add/move/delete
+  (e.g. shows "3 to buy · 0 bought" while the list has 2 and 1) — item mutations invalidate only
+  `["items", listId]`, never the `["lists"]` query whose payload carries `itemCounts`.
+- **Inputs:** T15 (counts line), use-item-mutations.ts / use-create-item.ts / use-smart-add.ts.
+- **Outputs:** every item mutation that changes counts (create, smart-add, move, delete) also
+  invalidates `["lists"]` on settle; for move/unbuy also patch the counts in the optimistic
+  `onMutate` (decrement source, increment target) so the line flips instantly with the row move,
+  corrected on settle.
+- **Definition of Done:** test: move item → counts line changes without any reload/refetch wait;
+  create + delete → counts change; rollback on failure restores both rows and counts.
+- **Dependencies:** T15, T27.
