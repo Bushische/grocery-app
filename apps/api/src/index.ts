@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import dotenv from "dotenv";
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
+import { createDb, createSqlite } from "./db/client";
+import { runMigrations } from "./db/migrate";
 
 const localEnvPath = resolve(".env");
 if (existsSync(localEnvPath)) {
@@ -10,7 +12,10 @@ if (existsSync(localEnvPath)) {
 }
 
 const config = loadConfig();
-const app = buildApp(config);
+const sqlite = createSqlite(config.databasePath);
+const db = createDb(sqlite);
+runMigrations(db);
+const app = buildApp(config, { db });
 
 try {
   await app.listen({ host: config.host, port: config.port });
@@ -21,7 +26,13 @@ try {
 
 const shutdown = (signal: NodeJS.Signals): void => {
   app.log.info({ signal }, "shutting down");
-  void app.close().finally(() => process.exit(0));
+  void app
+    .close()
+    .catch(() => {})
+    .finally(() => {
+      sqlite.close();
+      process.exit(0);
+    });
 };
 
 process.on("SIGINT", shutdown);
