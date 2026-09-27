@@ -132,9 +132,38 @@ export const updateCategoryRequestSchema = z.object({
 });
 export type UpdateCategoryRequest = z.infer<typeof updateCategoryRequestSchema>;
 
+// --- Prices (docs/API.md → Prices; docs/DATA_MODEL.md → priceObservations) ---
+
+/** Price observation as returned by the API — money as a decimal number (docs/API.md → Conventions). */
+export const priceObservationSchema = z.object({
+  price: z.number().positive(),
+  shop: z.string().min(1),
+  observedAt: isoDateTimeSchema,
+});
+export type PriceObservation = z.infer<typeof priceObservationSchema>;
+
+/** `POST /items/:id/prices` — `observedAt` is optional and defaults to server time. */
+export const createPriceObservationRequestSchema = z.object({
+  price: z.number().positive(),
+  shop: z.string().trim().min(1),
+  observedAt: isoDateTimeSchema.optional(),
+});
+export type CreatePriceObservationRequest = z.infer<typeof createPriceObservationRequestSchema>;
+
+/** Response of `GET /items/:id/prices` — observations newest first; `nextCursor` null on the last page. */
+export const pricesResponseSchema = z.object({
+  observations: z.array(priceObservationSchema),
+  nextCursor: z.string().nullable(),
+});
+export type PricesResponse = z.infer<typeof pricesResponseSchema>;
+
+/** Cursor pagination defaults (docs/API.md → Conventions: "default 50, max 100"). */
+export const DEFAULT_PAGE_LIMIT = 50;
+export const MAX_PAGE_LIMIT = 100;
+
 // --- Items (docs/API.md → Items) ---
 // Built incrementally: T7 exposes this DTO via `GET /categories/:id/items`,
-// T8 via `GET /lists/:id/items`; T11 adds `currentPrice` to item reads.
+// T8 via `GET /lists/:id/items`; T11 added `currentPrice` to item reads.
 
 export const itemStatusSchema = z.enum(["TO_BUY", "BOUGHT"]);
 
@@ -170,6 +199,8 @@ export const itemSchema = z.object({
   daysInList: z.number().int().min(0),
   category: itemCategorySchema,
   imageFilename: z.string().nullable(),
+  /** Latest price observation, or null when the item has none (docs/DATA_MODEL.md → Notes). */
+  currentPrice: priceObservationSchema.nullable(),
 });
 export type Item = z.infer<typeof itemSchema>;
 
@@ -212,15 +243,7 @@ export const smartAddResponseSchema = z.object({
 });
 export type SmartAddResponse = z.infer<typeof smartAddResponseSchema>;
 
-/** Price observation as returned by the API — money as a decimal number (docs/API.md → Conventions). */
-export const priceObservationSchema = z.object({
-  price: z.number().positive(),
-  shop: z.string().min(1),
-  observedAt: isoDateTimeSchema,
-});
-export type PriceObservation = z.infer<typeof priceObservationSchema>;
-
-/** Response of `GET /items/:id` — the item plus its price history, newest first. */
+/** Response of `GET /items/:id` — the item (incl. currentPrice) plus its price history, newest first. */
 export const itemDetailSchema = itemSchema.extend({ prices: z.array(priceObservationSchema) });
 export type ItemDetail = z.infer<typeof itemDetailSchema>;
 

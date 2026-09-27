@@ -17,6 +17,7 @@ import { categoryRoutes } from "./routes/categories";
 import { healthRoutes } from "./routes/health";
 import { itemRoutes } from "./routes/items";
 import { listRoutes } from "./routes/lists";
+import { priceRoutes } from "./routes/prices";
 
 export type AppDependencies = { db?: Db };
 
@@ -67,6 +68,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(listRoutes);
   app.register(categoryRoutes);
   app.register(itemRoutes);
+  app.register(priceRoutes);
 
   return app;
 }

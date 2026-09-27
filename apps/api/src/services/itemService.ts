@@ -8,11 +8,12 @@ import type {
   UpdateItemRequest,
 } from "@grocery/shared";
 import { createId } from "@paralleldrive/cuid2";
-import { and, asc, desc, eq, max, or, sql } from "drizzle-orm";
+import { and, asc, eq, max, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { categories, items, priceObservations } from "../db/schema";
+import { categories, items } from "../db/schema";
 import { FastifyHttpError } from "../errors";
 import { DEFAULT_CATEGORY_TITLE } from "./listService";
+import { currentPriceOf, currentPricesByItem, listAllPriceObservations } from "./priceService";
 import { bigrams, diceCoefficient, escapeLike } from "./textMatching";
 
 /** One day in milliseconds — `daysInList` granularity (docs/DATA_MODEL.md → Notes). */
@@ -33,7 +34,11 @@ export function computeDaysInList(addedAt: Date, now: Date = new Date()): number
 }
 
 /** Maps a joined item+category row to the API item DTO (docs/API.md → Items). */
-export function toItemDto(row: ItemRow, now: Date = new Date()): Item {
+export function toItemDto(
+  row: ItemRow,
+  now: Date = new Date(),
+  currentPrice: PriceObservation | null = null,
+): Item {
   return {
     id: row.item.id,
     title: row.item.title,
@@ -48,6 +53,7 @@ export function toItemDto(row: ItemRow, now: Date = new Date()): Item {
       color: row.category.color,
     },
     imageFilename: row.item.imageFilename,
+    currentPrice,
   };
 }
 
@@ -119,7 +125,11 @@ export function listItemsByCategory(db: Db, categoryId: string, now: Date = new 
     .where(eq(items.categoryId, categoryId))
     .orderBy(asc(items.sortOrder), asc(items.addedAt))
     .all();
-  return rows.map((row) => toItemDto(row, now));
+  const currentPrices = currentPricesByItem(
+    db,
+    rows.map((row) => row.item.id),
+  );
+  return rows.map((row) => toItemDto(row, now, currentPrices.get(row.item.id) ?? null));
 }
 
 /**
@@ -141,35 +151,23 @@ export function listItems(
     )
     .orderBy(asc(items.sortOrder), asc(items.addedAt))
     .all();
-  return rows.map((row) => toItemDto(row, now));
+  const currentPrices = currentPricesByItem(
+    db,
+    rows.map((row) => row.item.id),
+  );
+  return rows.map((row) => toItemDto(row, now, currentPrices.get(row.item.id) ?? null));
 }
 
-/** Price history of an item, newest first, cents converted to decimal (docs/API.md → Conventions). */
-function listPriceObservations(db: Db, itemId: string): PriceObservation[] {
-  return db
-    .select({
-      priceCents: priceObservations.priceCents,
-      shop: priceObservations.shop,
-      observedAt: priceObservations.observedAt,
-    })
-    .from(priceObservations)
-    .where(eq(priceObservations.itemId, itemId))
-    .orderBy(desc(priceObservations.observedAt))
-    .all()
-    .map((row) => ({
-      price: row.priceCents / 100,
-      shop: row.shop,
-      observedAt: row.observedAt.toISOString(),
-    }));
-}
-
-/** `GET /items/:id` — the item DTO plus its price history (docs/API.md → Items). */
+/** `GET /items/:id` — the item DTO (incl. currentPrice) plus its price history (docs/API.md → Items). */
 export function getItemDetail(db: Db, itemId: string, now: Date = new Date()): ItemDetail {
   const row = getItemRow(db, itemId);
   if (!row) {
     throw itemNotFound(itemId);
   }
-  return { ...toItemDto(row, now), prices: listPriceObservations(db, itemId) };
+  return {
+    ...toItemDto(row, now, currentPriceOf(db, itemId)),
+    prices: listAllPriceObservations(db, itemId),
+  };
 }
 
 /** Creates a TO_BUY item appended to the end of the section (sortOrder = max+1). */
@@ -199,7 +197,7 @@ export function createItem(
   if (!category) {
     throw new FastifyHttpError(500, "INTERNAL_ERROR", `Category ${categoryId} is missing`);
   }
-  return toItemDto({ item: row, category }, now);
+  return toItemDto({ item: row, category }, now, currentPriceOf(db, row.id));
 }
 
 /** Applies a partial update; every field is optional (docs/API.md → Items). */
@@ -233,7 +231,7 @@ export function updateItem(
   if (!row) {
     throw itemNotFound(itemId);
   }
-  return toItemDto(row, now);
+  return toItemDto(row, now, currentPriceOf(db, itemId));
 }
 
 /** Deletes the item; its price observations cascade (schema FK). */
@@ -343,7 +341,7 @@ function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
   if (!updated) {
     throw itemNotFound(row.item.id);
   }
-  return toItemDto({ item: updated, category: row.category }, now);
+  return toItemDto({ item: updated, category: row.category }, now, currentPriceOf(db, updated.id));
 }
 
 /**
@@ -353,7 +351,7 @@ function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
  */
 function activateIfBought(db: Db, row: ItemRow, now: Date): Item {
   if (row.item.status !== "BOUGHT") {
-    return toItemDto(row, now);
+    return toItemDto(row, now, currentPriceOf(db, row.item.id));
   }
   return moveTo(db, row, "TO_BUY", now);
 }
@@ -440,7 +438,7 @@ export function smartAddItem(
     return {
       created: true,
       matchedBy: "created" as const,
-      item: toItemDto({ item: created, category }, now),
+      item: toItemDto({ item: created, category }, now, currentPriceOf(tx, created.id)),
     };
   });
 }

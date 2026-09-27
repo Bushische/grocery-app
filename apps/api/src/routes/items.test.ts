@@ -610,6 +610,7 @@ describe("GET /items/:id", () => {
     expect(Object.keys(body).sort()).toEqual([
       "addedAt",
       "category",
+      "currentPrice",
       "daysInList",
       "id",
       "imageFilename",
@@ -624,6 +625,12 @@ describe("GET /items/:id", () => {
       title: "Milk",
       daysInList: 2,
       category: { title: "Other", color: "#6B7280" },
+    });
+    // T11: currentPrice is the derived latest observation (docs/DATA_MODEL.md → Notes).
+    expect(body.currentPrice).toEqual({
+      price: 1.29,
+      shop: "Rewe",
+      observedAt: new Date(Math.floor((now - DAY_MS) / 1000) * 1000).toISOString(),
     });
     expect(body.prices).toEqual([
       {
@@ -649,6 +656,7 @@ describe("GET /items/:id", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().prices).toEqual([]);
+    expect(res.json().currentPrice).toBeNull();
   });
 
   it("rejects a non-member with 403 and an unknown item with 404", async () => {

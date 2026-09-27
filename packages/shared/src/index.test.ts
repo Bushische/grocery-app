@@ -8,6 +8,7 @@ import {
   createCategoryRequestSchema,
   createItemRequestSchema,
   createListRequestSchema,
+  createPriceObservationRequestSchema,
   hexColorSchema,
   itemDetailSchema,
   itemImageResponseSchema,
@@ -20,6 +21,7 @@ import {
   loginResponseSchema,
   moveItemRequestSchema,
   priceObservationSchema,
+  pricesResponseSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
   updateCategoryRequestSchema,
@@ -154,6 +156,7 @@ describe("item schemas", () => {
     daysInList: 3,
     category: { id: "c1", title: "Dairy", color: "#3B82F6" },
     imageFilename: null,
+    currentPrice: null,
   };
 
   it("itemSchema accepts the DTO shape with nullable fields", () => {
@@ -163,6 +166,20 @@ describe("item schemas", () => {
       qtyText: null,
       status: "BOUGHT",
     });
+  });
+
+  it("itemSchema accepts a populated currentPrice and rejects an invalid one", () => {
+    const priced = {
+      ...item,
+      currentPrice: { price: 1.99, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" },
+    };
+    expect(itemSchema.parse(priced)).toEqual(priced);
+    expect(
+      itemSchema.safeParse({ ...item, currentPrice: { price: 0, shop: "Lidl" } }).success,
+    ).toBe(false);
+    expect(itemSchema.safeParse({ ...item, currentPrice: { price: 1.99, shop: "" } }).success).toBe(
+      false,
+    );
   });
 
   it("itemSchema rejects bad status, timestamps, and negative days", () => {
@@ -218,6 +235,7 @@ describe("smartAddResponseSchema", () => {
     daysInList: 3,
     category: { id: "c1", title: "Dairy", color: "#3B82F6" },
     imageFilename: null,
+    currentPrice: null,
   };
 
   it("accepts created/matchedBy/item and validates matchedBy values", () => {
@@ -258,6 +276,49 @@ describe("price observation schemas", () => {
     );
   });
 
+  it("createPriceObservationRequestSchema trims shop and makes observedAt optional", () => {
+    expect(createPriceObservationRequestSchema.parse({ price: 1.99, shop: " Lidl " })).toEqual({
+      price: 1.99,
+      shop: "Lidl",
+    });
+    expect(
+      createPriceObservationRequestSchema.parse({
+        price: 0.5,
+        shop: "Rewe",
+        observedAt: "2026-09-25T10:00:00.000Z",
+      }),
+    ).toEqual({ price: 0.5, shop: "Rewe", observedAt: "2026-09-25T10:00:00.000Z" });
+    expect(createPriceObservationRequestSchema.safeParse({ price: 0, shop: "Lidl" }).success).toBe(
+      false,
+    );
+    expect(createPriceObservationRequestSchema.safeParse({ price: 1.99, shop: "  " }).success).toBe(
+      false,
+    );
+    expect(createPriceObservationRequestSchema.safeParse({ shop: "Lidl" }).success).toBe(false);
+    expect(
+      createPriceObservationRequestSchema.safeParse({ price: 1.99, shop: "Lidl", observedAt: "x" })
+        .success,
+    ).toBe(false);
+    expect(
+      createPriceObservationRequestSchema.safeParse({ price: "1.99", shop: "Lidl" }).success,
+    ).toBe(false);
+  });
+
+  it("pricesResponseSchema requires the observations array and a nullable nextCursor", () => {
+    const observation = { price: 1.99, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" };
+    expect(pricesResponseSchema.parse({ observations: [observation], nextCursor: null })).toEqual({
+      observations: [observation],
+      nextCursor: null,
+    });
+    expect(pricesResponseSchema.parse({ observations: [], nextCursor: "abc" }).nextCursor).toBe(
+      "abc",
+    );
+    expect(pricesResponseSchema.safeParse({ observations: [] }).success).toBe(false);
+    expect(
+      pricesResponseSchema.safeParse({ observations: [observation], nextCursor: 5 }).success,
+    ).toBe(false);
+  });
+
   it("itemDetailSchema extends the item DTO with the prices array", () => {
     const item = {
       id: "i1",
@@ -269,10 +330,14 @@ describe("price observation schemas", () => {
       daysInList: 3,
       category: { id: "c1", title: "Dairy", color: "#3B82F6" },
       imageFilename: null,
+      currentPrice: { price: 1.29, shop: "Rewe", observedAt: "2026-09-26T10:00:00.000Z" },
     };
     const detail = {
       ...item,
-      prices: [{ price: 1.99, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" }],
+      prices: [
+        { price: 1.29, shop: "Rewe", observedAt: "2026-09-26T10:00:00.000Z" },
+        { price: 1.19, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" },
+      ],
     };
     expect(itemDetailSchema.parse(detail)).toEqual(detail);
     expect(itemDetailSchema.safeParse(item).success).toBe(false);
