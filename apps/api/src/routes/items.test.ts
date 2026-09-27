@@ -848,3 +848,202 @@ describe("DELETE /items/:id", () => {
     expect(unauthenticated.json().error.code).toBe("UNAUTHORIZED");
   });
 });
+
+describe("POST /items/:id/move", () => {
+  function move(itemId: string, status: string, token = editorToken) {
+    return app.inject({
+      method: "POST",
+      url: `/items/${itemId}/move`,
+      headers: bearer(token),
+      payload: { status },
+    });
+  }
+
+  it("moves TO_BUY → BOUGHT: boughtAt = now, appended to the end of the bought section", async () => {
+    const listId = await createScratchList("Move To Bought");
+    const other = otherCategoryOf(listId);
+    // Whole seconds — timestamps are stored as unix epoch (timestamp mode).
+    const addedAt = new Date(Math.floor((Date.now() - 3 * DAY_MS) / 1000) * 1000);
+    const a = seedItem(listId, other.id, {
+      title: "Milk",
+      status: "TO_BUY",
+      sortOrder: 0,
+      addedAt,
+      usageCount: 2,
+    });
+    const b = seedItem(listId, other.id, {
+      title: "Bread",
+      status: "TO_BUY",
+      sortOrder: 1,
+      addedAt,
+    });
+    // A pre-existing bought item owns the high-sortOrder slot.
+    const old = seedItem(listId, other.id, { title: "Old", status: "BOUGHT", sortOrder: 5 });
+
+    const before = new Date();
+    const res = await move(a.id, "bought");
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({
+      id: a.id,
+      status: "BOUGHT",
+      sortOrder: 6, // max(BOUGHT) 5 + 1
+      daysInList: 3, // to_bought keeps addedAt — only boughtAt changes
+    });
+    const after = itemById(a.id);
+    expect(after?.boughtAt?.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+    expect(after?.addedAt.getTime()).toBe(addedAt.getTime());
+    expect(after?.usageCount).toBe(2); // usageCount only bumps on the to_buy direction
+
+    // Bought section order: [Old, Milk]; to_buy keeps Bread.
+    const bought = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=bought`,
+      headers: bearer(viewerToken),
+    });
+    expect((bought.json().items as Array<{ id: string }>).map((item) => item.id)).toEqual([
+      old.id,
+      a.id,
+    ]);
+    const toBuy = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=to_buy`,
+      headers: bearer(viewerToken),
+    });
+    expect((toBuy.json().items as Array<{ id: string }>).map((item) => item.id)).toEqual([b.id]);
+  });
+
+  it("appends successive bought moves after the previous max sortOrder", async () => {
+    const listId = await createScratchList("Move Append Bought");
+    const other = otherCategoryOf(listId);
+    const a = seedItem(listId, other.id, { title: "A", status: "TO_BUY", sortOrder: 0 });
+    const b = seedItem(listId, other.id, { title: "B", status: "TO_BUY", sortOrder: 1 });
+
+    const first = await move(a.id, "bought");
+    expect(first.statusCode).toBe(200);
+    expect(first.json().sortOrder).toBe(0); // empty bought section → 0
+
+    const second = await move(b.id, "bought");
+    expect(second.statusCode).toBe(200);
+    expect(second.json().sortOrder).toBe(1);
+
+    const bought = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=bought`,
+      headers: bearer(viewerToken),
+    });
+    expect(
+      (bought.json().items as Array<{ id: string; sortOrder: number }>).map((item) => ({
+        id: item.id,
+        sortOrder: item.sortOrder,
+      })),
+    ).toEqual([
+      { id: a.id, sortOrder: 0 },
+      { id: b.id, sortOrder: 1 },
+    ]);
+  });
+
+  it("moves BOUGHT → TO_BUY: addedAt = now, boughtAt = null, usageCount+1, appended to the end", async () => {
+    const listId = await createScratchList("Move To ToBuy");
+    const other = otherCategoryOf(listId);
+    const milk = seedItem(listId, other.id, { title: "Milk", status: "TO_BUY", sortOrder: 0 });
+    const bread = seedItem(listId, other.id, { title: "Bread", status: "TO_BUY", sortOrder: 1 });
+    const butter = seedItem(listId, other.id, {
+      title: "Butter",
+      status: "BOUGHT",
+      sortOrder: 3,
+      usageCount: 4,
+      addedAt: new Date(Date.now() - 7 * DAY_MS),
+      boughtAt: new Date(Date.now() - DAY_MS),
+    });
+
+    const before = new Date();
+    const res = await move(butter.id, "to_buy");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: butter.id,
+      status: "TO_BUY",
+      sortOrder: 2, // end of the TO_BUY section
+      daysInList: 0, // addedAt reset to now
+    });
+    const after = itemById(butter.id);
+    expect(after?.boughtAt).toBeNull();
+    expect(after?.usageCount).toBe(5);
+    expect(after?.addedAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+
+    const toBuy = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=to_buy`,
+      headers: bearer(viewerToken),
+    });
+    expect((toBuy.json().items as Array<{ id: string }>).map((item) => item.id)).toEqual([
+      milk.id,
+      bread.id,
+      butter.id,
+    ]);
+  });
+
+  it("updates the counters on both directions across a full round trip", async () => {
+    const listId = await createScratchList("Move Counters");
+    const other = otherCategoryOf(listId);
+    const item = seedItem(listId, other.id, {
+      title: "Milk",
+      status: "TO_BUY",
+      sortOrder: 0,
+      usageCount: 0,
+    });
+
+    const toBought = await move(item.id, "bought");
+    expect(toBought.statusCode).toBe(200);
+    expect(itemById(item.id)).toMatchObject({ status: "BOUGHT", usageCount: 0 });
+
+    const backToToBuy = await move(item.id, "to_buy");
+    expect(backToToBuy.statusCode).toBe(200);
+    expect(itemById(item.id)).toMatchObject({ status: "TO_BUY", usageCount: 1 });
+
+    const boughtAgain = await move(item.id, "bought");
+    expect(boughtAgain.statusCode).toBe(200);
+    expect(itemById(item.id)).toMatchObject({ status: "BOUGHT", usageCount: 1 });
+  });
+
+  it("rejects VIEWER and non-members with 403 and leaves the item untouched", async () => {
+    const listId = await createScratchList("Move Roles");
+    const item = seedItem(listId, otherCategoryOf(listId).id, {
+      title: "Milk",
+      status: "TO_BUY",
+      sortOrder: 0,
+    });
+    for (const token of [viewerToken, outsiderToken]) {
+      const res = await move(item.id, "bought", token);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("FORBIDDEN");
+    }
+    expect(itemById(item.id)).toMatchObject({ status: "TO_BUY" });
+  });
+
+  it("rejects an unknown item with 404", async () => {
+    const res = await move("does-not-exist", "bought", ownerToken);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+
+  it("validates the status value with 400", async () => {
+    const item = seedItem(familyListId, otherCategoryId, { title: "Milk" });
+    for (const status of ["BOUGHT", "TO_BUY", "all", ""]) {
+      const res = await move(item.id, status);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+    expect(itemById(item.id)?.status).toBe("TO_BUY");
+  });
+
+  it("rejects a missing token with 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/items/does-not-exist/move",
+      payload: { status: "bought" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("UNAUTHORIZED");
+  });
+});

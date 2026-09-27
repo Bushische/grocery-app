@@ -318,30 +318,59 @@ function findFuzzyMatch(db: Db, listId: string, text: string): ItemRow | undefin
 }
 
 /**
+ * Applies one move direction to a fetched row (docs/API.md → Items): the item
+ * is written into `target` and appended to the end of the target section.
+ * to bought: boughtAt = now. to to_buy: addedAt = now, boughtAt = null,
+ * usageCount+1, sortOrder = end. Shared by `moveItem` (T9) and smart-add's
+ * BOUGHT re-activation.
+ */
+function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
+  const set: Partial<typeof items.$inferInsert> =
+    target === "BOUGHT"
+      ? {
+          status: "BOUGHT",
+          boughtAt: now,
+          sortOrder: highestSortOrder(db, row.item.listId, "BOUGHT") + 1,
+        }
+      : {
+          status: "TO_BUY",
+          addedAt: now,
+          boughtAt: null,
+          usageCount: row.item.usageCount + 1,
+          sortOrder: highestSortOrder(db, row.item.listId, "TO_BUY") + 1,
+        };
+  const updated = db.update(items).set(set).where(eq(items.id, row.item.id)).returning().get();
+  if (!updated) {
+    throw itemNotFound(row.item.id);
+  }
+  return toItemDto({ item: updated, category: row.category }, now);
+}
+
+/**
  * Re-activates a matched BOUGHT item (docs/API.md → Items): back to TO_BUY
  * with addedAt = now, boughtAt = null, usageCount+1, appended to the end of
- * the TO_BUY section (same semantics as the move endpoint, T9).
+ * the TO_BUY section. A matched TO_BUY item is returned unchanged.
  */
 function activateIfBought(db: Db, row: ItemRow, now: Date): Item {
   if (row.item.status !== "BOUGHT") {
     return toItemDto(row, now);
   }
-  const updated = db
-    .update(items)
-    .set({
-      status: "TO_BUY",
-      addedAt: now,
-      boughtAt: null,
-      usageCount: row.item.usageCount + 1,
-      sortOrder: highestSortOrder(db, row.item.listId, "TO_BUY") + 1,
-    })
-    .where(eq(items.id, row.item.id))
-    .returning()
-    .get();
-  if (!updated) {
-    throw itemNotFound(row.item.id);
-  }
-  return toItemDto({ item: updated, category: row.category }, now);
+  return moveTo(db, row, "TO_BUY", now);
+}
+
+/**
+ * `POST /items/:id/move` (docs/API.md → Items): toggles the item's status
+ * between TO_BUY and BOUGHT with the direction's timestamps/counters and
+ * appends it to the end of the target section's sortOrder.
+ */
+export function moveItem(db: Db, itemId: string, target: ItemStatus, now: Date = new Date()): Item {
+  return db.transaction((tx) => {
+    const row = getItemRow(tx, itemId);
+    if (!row) {
+      throw itemNotFound(itemId);
+    }
+    return moveTo(tx, row, target, now);
+  });
 }
 
 /**

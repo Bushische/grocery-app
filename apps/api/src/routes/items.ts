@@ -5,6 +5,7 @@ import {
   itemStatusByFilter,
   itemStatusFilterSchema,
   itemsResponseSchema,
+  moveItemRequestSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
   updateItemRequestSchema,
@@ -70,6 +71,16 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
       const { id } = itemIdParamsSchema.parse(request.params);
       const patch = updateItemRequestSchema.parse(request.body);
       return itemSchema.parse(itemService.updateItem(db, id, patch));
+    },
+  );
+
+  app.post(
+    "/items/:id/move",
+    { preHandler: [requireAuth, requireItemRole("EDITOR")] },
+    async (request) => {
+      const { id } = itemIdParamsSchema.parse(request.params);
+      const { status } = moveItemRequestSchema.parse(request.body);
+      return itemSchema.parse(itemService.moveItem(db, id, itemStatusByFilter[status]));
     },
   );
 

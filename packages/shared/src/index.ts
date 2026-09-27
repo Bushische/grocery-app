@@ -192,6 +192,11 @@ export const updateItemRequestSchema = z.object({
 });
 export type UpdateItemRequest = z.infer<typeof updateItemRequestSchema>;
 
+/** `POST /items/:id/move` — the move endpoint takes the same filter-style status values
+ * as the item list query (`"bought"` / `"to_buy"`, docs/API.md → Items). */
+export const moveItemRequestSchema = z.object({ status: itemStatusFilterSchema });
+export type MoveItemRequest = z.infer<typeof moveItemRequestSchema>;
+
 /** `POST /lists/:id/items/smart-add` — free text from the bottom input box. */
 export const smartAddRequestSchema = z.object({ text: titleSchema });
 export type SmartAddRequest = z.infer<typeof smartAddRequestSchema>;

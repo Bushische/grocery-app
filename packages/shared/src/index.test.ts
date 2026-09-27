@@ -15,6 +15,7 @@ import {
   listSummarySchema,
   loginRequestSchema,
   loginResponseSchema,
+  moveItemRequestSchema,
   priceObservationSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
@@ -283,5 +284,19 @@ describe("itemStatusFilterSchema", () => {
     expect(itemStatusFilterSchema.safeParse("all").success).toBe(false);
     expect(itemStatusByFilter.to_buy).toBe("TO_BUY");
     expect(itemStatusByFilter.bought).toBe("BOUGHT");
+  });
+});
+
+describe("moveItemRequestSchema", () => {
+  it("accepts the filter-style target status of POST /items/:id/move", () => {
+    expect(moveItemRequestSchema.parse({ status: "bought" })).toEqual({ status: "bought" });
+    expect(moveItemRequestSchema.parse({ status: "to_buy" })).toEqual({ status: "to_buy" });
+  });
+
+  it("rejects stored-enum values, unknown values, and missing status", () => {
+    expect(moveItemRequestSchema.safeParse({ status: "BOUGHT" }).success).toBe(false);
+    expect(moveItemRequestSchema.safeParse({ status: "TO_BUY" }).success).toBe(false);
+    expect(moveItemRequestSchema.safeParse({ status: "all" }).success).toBe(false);
+    expect(moveItemRequestSchema.safeParse({}).success).toBe(false);
   });
 });
