@@ -12,6 +12,7 @@ import { type Db, createDb, createSqlite } from "./db/client";
 import { registerAuth } from "./plugins/auth";
 import { registerDb } from "./plugins/db";
 import { applyErrorHandling } from "./plugins/error-handler";
+import { apiTokenRoutes } from "./routes/api-tokens";
 import { authRoutes } from "./routes/auth";
 import { categoryRoutes } from "./routes/categories";
 import { healthRoutes } from "./routes/health";
@@ -66,6 +67,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   registerAuth(app, config.jwtSecret);
   app.register(healthRoutes);
   app.register(authRoutes);
+  app.register(apiTokenRoutes);
   app.register(listRoutes);
   app.register(categoryRoutes);
   app.register(itemRoutes);

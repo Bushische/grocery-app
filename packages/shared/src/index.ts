@@ -295,3 +295,28 @@ export const MAX_IMAGE_DIMENSION = 600;
 /** Response of `POST /items/:id/image` — the content-addressed filename under /static. */
 export const itemImageResponseSchema = z.object({ imageFilename: z.string().min(1) });
 export type ItemImageResponse = z.infer<typeof itemImageResponseSchema>;
+
+// --- API tokens (docs/API.md → API tokens; docs/TASKS.md → T13) ---
+
+/** Prefix of long-lived AI-agent tokens (docs/PROJECT.md → Auth). */
+export const API_TOKEN_PREFIX = "glc_";
+
+/** Row of `GET /api-tokens` — the plaintext token is never stored or listed. */
+export const apiTokenSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  lastUsedAt: isoDateTimeSchema.nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type ApiToken = z.infer<typeof apiTokenSchema>;
+
+/** Request of `POST /api-tokens`. */
+export const createApiTokenRequestSchema = z.object({ name: titleSchema });
+export type CreateApiTokenRequest = z.infer<typeof createApiTokenRequestSchema>;
+
+/** Response of `POST /api-tokens` — the plaintext token is returned exactly once. */
+export const apiTokenCreatedSchema = z.object({
+  id: z.string().min(1),
+  token: z.string().min(1),
+});
+export type ApiTokenCreated = z.infer<typeof apiTokenCreatedSchema>;

@@ -1,8 +1,9 @@
 import jwt from "@fastify/jwt";
-import { type AuthUser, type UserRole, authUserSchema } from "@grocery/shared";
+import { API_TOKEN_PREFIX, type AuthUser, type UserRole, authUserSchema } from "@grocery/shared";
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { z } from "zod";
 import { FastifyHttpError } from "../errors";
+import { authenticateApiToken } from "../services/apiTokenService";
 
 /**
  * JWT claims carried by the 15-min access token (docs/PROJECT.md → Auth).
@@ -45,13 +46,30 @@ export function signAccessToken(
 }
 
 /**
- * Middleware: validates the `Authorization: Bearer <accessToken>` header and
- * populates `request.user` ({ id, email, role }) or throws 401 UNAUTHORIZED.
+ * Middleware (docs/API.md → Conventions): validates the `Authorization` header
+ * and populates `request.user` ({ id, email, role }) or throws 401
+ * UNAUTHORIZED. Accepts either a 15-min JWT access token or a `glc_…` API
+ * token (T13 — acts as the user who created it; `lastUsedAt` is bumped).
  */
 export const requireAuth: preHandlerHookHandler = async (request, _reply) => {
+  const presented = authHeaderToken(request.headers.authorization);
+  if (presented?.startsWith(API_TOKEN_PREFIX)) {
+    const user = authenticateApiToken(request.server.db, presented);
+    if (!user) {
+      throw new FastifyHttpError(401, "UNAUTHORIZED", "Invalid API token");
+    }
+    request.user = authUserSchema.parse({ id: user.id, email: user.email, role: user.role });
+    return;
+  }
   try {
     await request.jwtVerify();
   } catch {
     throw new FastifyHttpError(401, "UNAUTHORIZED", "Missing or invalid access token");
   }
 };
+
+/** Extracts the credential from a `Bearer <token>` header. */
+function authHeaderToken(header: string | undefined): string | undefined {
+  if (!header?.startsWith("Bearer ")) return undefined;
+  return header.slice("Bearer ".length).trim() || undefined;
+}
