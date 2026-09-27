@@ -1,0 +1,61 @@
+# Production stack (T21): static web (nginx) + api (bundled node) + tunnel placeholder.
+# SQLite stays in-process in the api container; no db service.
+# Memory budget per docs/PROJECT.md: api 128m, web 32m, tunnel 64m (< 150 MB idle RSS).
+
+services:
+  api:
+    image: ${API_IMAGE:-grocery-api:latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (see .env.prod.example)}
+      DATABASE_PATH: /data/grocery.db
+      UPLOADS_PATH: /data/images
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - data:/data
+      - uploads:/data/images
+    expose:
+      - '3000'
+    mem_limit: 128m
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  web:
+    image: ${WEB_IMAGE:-grocery-web:latest}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    mem_limit: 32m
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  # Placeholder until T22 (start with: docker compose -f docker-compose.prod.yml --profile tunnel up -d)
+  tunnel:
+    profiles: ['tunnel']
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - web
+    mem_limit: 64m
+
+volumes:
+  data:
+  uploads:
