@@ -48,7 +48,7 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 | T36 | BOUGHT rows: strikethrough + faded styling | DONE | 2026-09-27 | web-only: item-row.tsx — BOUGHT rows render title `line-through text-gray-400`, qty/badge muted (`text-gray-400`, badge bg-gray-50), category bar `opacity-50 grayscale`, row opacity 0.7; TO_BUY rows and all interactions (T27 tap toggle, long-press, handle) unchanged; style is a pure fn of item.status so the T27 optimistic move applies it immediately; FIXED pre-existing applyMove bug found by the new test (moved item was duplicated — stayed in its source section — for both move directions; optimistic un-buy would also double the row); 3 new tests incl. deferred-POST proof of immediate fade + un-buy restore; lint+test green (429 tests) |
 | T37 | Self-healing default "Other" category | PENDING | | |
 | T38 | Uploads writability self-check at api boot | PENDING | | |
-| T39 | List counts line updates after item mutations | PENDING | | |
+| T39 | "To buy" section header statistics, client-derived | PENDING | | |
 
 ## Rules
 - One task per agent session; one commit per task (made by the orchestrator after verification).

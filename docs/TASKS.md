@@ -462,15 +462,22 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   message; writable path → boots normally; existing boot tests green.
 - **Dependencies:** T4.5 (config), T21.
 
-### T39 — List counts line updates after item mutations *(bugfix)*
-- **Goal:** Fix: the "N to buy · M bought" line stays stale after add/smart-add/move/delete
-  (e.g. shows "3 to buy · 0 bought" while the list has 2 and 1) — item mutations invalidate only
-  `["items", listId]`, never the `["lists"]` query whose payload carries `itemCounts`.
-- **Inputs:** T15 (counts line), use-item-mutations.ts / use-create-item.ts / use-smart-add.ts.
-- **Outputs:** every item mutation that changes counts (create, smart-add, move, delete) also
-  invalidates `["lists"]` on settle; for move/unbuy also patch the counts in the optimistic
-  `onMutate` (decrement source, increment target) so the line flips instantly with the row move,
-  corrected on settle.
-- **Definition of Done:** test: move item → counts line changes without any reload/refetch wait;
-  create + delete → counts change; rollback on failure restores both rows and counts.
-- **Dependencies:** T15, T27.
+### T39 — "To buy" section header statistics, client-derived *(refactor)*
+- **Goal:** Replace the server-derived "N to buy · M bought" line (stale-prone — it reads
+  `["lists"]` `itemCounts` that item mutations never refresh) with a client-computed count in
+  the "To buy" section header: one line at the top of the list, e.g. `To buy (3)`.
+- **Inputs:** T16 (item sections), T27 (row-tap move), lists-page.tsx:43 (old counts line).
+- **Outputs:**
+  - the "To buy" section header renders the count of TO_BUY rows **derived from the loaded
+    items cache** (`items.filter(i => i.status === "TO_BUY").length`) — no extra API call;
+    the existing optimistic move/create/delete cache updates recompute it automatically.
+  - the old server-counts line is removed from the main screen (the `itemCounts` payload stays
+    in `/lists` for the overlay menu's list switcher — no API/shared changes).
+- **Behavior:** recalculated whenever the cache changes (move to/from bought, create, delete);
+  on list switch the count derives from the freshly fetched list ("only to buy" is tracked —
+  bought has no counter).
+- **Definition of Done:** open list → correct count; move to bought → count decrements in the
+  same optimistic frame as the row (deferred-POST harness as in T36), rollback restores it;
+  create/delete update it; list switch + back recalculates from server data; old counts line
+  gone; tests cover all of it.
+- **Dependencies:** T15, T27, T36.
