@@ -8,6 +8,13 @@
       "when": 1790445000803,
       "tag": "0000_thick_greymalkin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790528150093,
+      "tag": "0001_skinny_wong",
+      "breakpoints": true
     }
   ]
 }

@@ -598,3 +598,67 @@ describe("GET /categories/:id/items", () => {
     expect(res.json().error.code).toBe("UNAUTHORIZED");
   });
 });
+
+describe("category title uniqueness per list (T37)", () => {
+  it("rejects creating a duplicate title with 409", async () => {
+    const scratch = await createScratchList("Dup Create");
+    const first = await app.inject({
+      method: "POST",
+      url: `/lists/${scratch}/categories`,
+      headers: bearer(ownerToken),
+      payload: { title: "Dairy", color: "#3B82F6" },
+    });
+    expect(first.statusCode).toBe(201);
+
+    for (const title of ["Dairy", "Other"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/lists/${scratch}/categories`,
+        headers: bearer(editorToken),
+        payload: { title, color: "#22C55E" },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("CONFLICT");
+    }
+    expect(db.select().from(categories).where(eq(categories.listId, scratch)).all()).toHaveLength(
+      2,
+    );
+  });
+
+  it("rejects renaming onto an existing title with 409 but allows a same-title patch", async () => {
+    const scratch = await createScratchList("Dup Rename");
+    const dairy = await app.inject({
+      method: "POST",
+      url: `/lists/${scratch}/categories`,
+      headers: bearer(ownerToken),
+      payload: { title: "Dairy", color: "#3B82F6" },
+    });
+    expect(dairy.statusCode).toBe(201);
+    const bakery = await app.inject({
+      method: "POST",
+      url: `/lists/${scratch}/categories`,
+      headers: bearer(ownerToken),
+      payload: { title: "Bakery", color: "#F59E0B" },
+    });
+    expect(bakery.statusCode).toBe(201);
+
+    const onto = await app.inject({
+      method: "PATCH",
+      url: `/categories/${dairy.json().id}`,
+      headers: bearer(ownerToken),
+      payload: { title: "Bakery" },
+    });
+    expect(onto.statusCode).toBe(409);
+    expect(onto.json().error.code).toBe("CONFLICT");
+    expect(categoryById(dairy.json().id as string)).toMatchObject({ title: "Dairy" });
+
+    // Renaming a category to its own title is not a conflict.
+    const self = await app.inject({
+      method: "PATCH",
+      url: `/categories/${otherCategoryId}`,
+      headers: bearer(ownerToken),
+      payload: { title: "Other" },
+    });
+    expect(self.statusCode).toBe(200);
+  });
+});

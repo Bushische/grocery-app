@@ -87,7 +87,12 @@ export const categories = sqliteTable(
     color: text("color").notNull(), // #RRGGBB
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (t) => [index("categories_list_idx").on(t.listId)],
+  (t) => [
+    index("categories_list_idx").on(t.listId),
+    // Title is unique per list — keeps the self-healing default "Other"
+    // category (itemService.defaultCategoryId) from ever being duplicated.
+    uniqueIndex("categories_list_title_uq").on(t.listId, t.title),
+  ],
 );
 
 export const items = sqliteTable(

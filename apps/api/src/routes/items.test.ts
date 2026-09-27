@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { ListRole, SmartAddResponse } from "@grocery/shared";
 import { createId } from "@paralleldrive/cuid2";
 import { hashSync } from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -1401,5 +1401,112 @@ describe("POST /lists/:id/items/reorder (docs/TASKS.md → T16.5)", () => {
     for (const [index, item] of inserted.reverse().entries()) {
       expect(itemById(item.id)?.sortOrder).toBe(index);
     }
+  });
+});
+
+describe("self-healing default Other category (T37)", () => {
+  /** Deletes a list's default "Other" category through the API (owner-only). */
+  async function deleteOther(listId: string): Promise<void> {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/categories/${otherCategoryOf(listId).id}`,
+      headers: bearer(ownerToken),
+    });
+    expect(res.statusCode).toBe(204);
+  }
+
+  function otherRowsOf(listId: string): (typeof categories.$inferSelect)[] {
+    return db
+      .select()
+      .from(categories)
+      .where(and(eq(categories.listId, listId), eq(categories.title, "Other")))
+      .all();
+  }
+
+  it("re-creates Other after its deletion and files the smart-add item there (201)", async () => {
+    const listId = await createScratchList("Heal Smart");
+    const originalOther = otherCategoryOf(listId);
+    const dairy = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/categories`,
+      headers: bearer(ownerToken),
+      payload: { title: "Dairy", color: "#3B82F6" },
+    });
+    expect(dairy.statusCode).toBe(201);
+    await deleteOther(listId);
+
+    const res = await smartAdd(listId, "Brand New Gadget");
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as SmartAddResponse;
+    expect(body).toMatchObject({ created: true, matchedBy: "created" });
+    expect(body.item.category).toEqual({
+      id: expect.not.stringContaining(originalOther.id),
+      title: "Other",
+      color: "#6B7280",
+    });
+
+    // Exactly one recreated "Other", appended after the remaining categories.
+    const others = otherRowsOf(listId);
+    expect(others).toHaveLength(1);
+    const [recreated] = others;
+    expect(recreated?.color).toBe("#6B7280");
+    expect(recreated?.sortOrder).toBe(2);
+    expect(itemById(body.item.id)?.categoryId).toBe(recreated?.id);
+
+    // The recreated default keeps working as the smart-add fallback.
+    const again = await smartAdd(listId, "Another brand new thing");
+    expect(again.statusCode).toBe(201);
+    expect((again.json() as SmartAddResponse).item.category.id).toBe(recreated?.id);
+  });
+
+  it("plain POST /lists/:id/items works after the default was deleted", async () => {
+    const listId = await createScratchList("Heal Create");
+    await deleteOther(listId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/items`,
+      headers: bearer(editorToken),
+      payload: { title: "Milk" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().category).toMatchObject({ title: "Other", color: "#6B7280" });
+    expect(otherRowsOf(listId)).toHaveLength(1);
+  });
+
+  it("never duplicates Other: concurrent fallback creates share one row (unique per list+title)", async () => {
+    const listId = await createScratchList("Heal Race");
+    await deleteOther(listId);
+
+    const [first, second] = await Promise.all([
+      smartAdd(listId, "Race One"),
+      smartAdd(listId, "Race Two"),
+    ]);
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+
+    const others = otherRowsOf(listId);
+    expect(others).toHaveLength(1);
+    const [shared] = others;
+    expect(itemById((first.json() as SmartAddResponse).item.id)?.categoryId).toBe(shared?.id);
+    expect(itemById((second.json() as SmartAddResponse).item.id)?.categoryId).toBe(shared?.id);
+  });
+
+  it("reuses a user-created Other instead of duplicating the default", async () => {
+    const listId = await createScratchList("Heal Reuse");
+    await deleteOther(listId);
+    const manual = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/categories`,
+      headers: bearer(ownerToken),
+      payload: { title: "Other", color: "#FF0000" },
+    });
+    expect(manual.statusCode).toBe(201);
+
+    const res = await smartAdd(listId, "Unmatched Thing");
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as SmartAddResponse;
+    expect(body.item.category).toEqual({ id: manual.json().id, title: "Other", color: "#FF0000" });
+    expect(otherRowsOf(listId)).toHaveLength(1);
   });
 });

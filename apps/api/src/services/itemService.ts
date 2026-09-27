@@ -12,7 +12,7 @@ import { and, asc, eq, max, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { categories, items } from "../db/schema";
 import { FastifyHttpError } from "../errors";
-import { DEFAULT_CATEGORY_TITLE } from "./listService";
+import { DEFAULT_CATEGORY_COLOR, DEFAULT_CATEGORY_TITLE } from "./listService";
 import { currentPriceOf, currentPricesByItem, listAllPriceObservations } from "./priceService";
 import { bigrams, diceCoefficient, escapeLike } from "./textMatching";
 
@@ -81,23 +81,52 @@ function highestSortOrder(db: Db, listId: string, status: ItemStatus): number {
 
 /**
  * The list's default "Other" category — smart-add and plain creates fall back
- * to it (docs/PROJECT.md → Categories). A list always has one (created with
- * the list in T6), so a missing row is an internal invariant breach.
+ * to it (docs/PROJECT.md → Categories, docs/API.md → smart-add step 4).
+ * Self-healing (T37): the row may legitimately be deleted while empty
+ * (docs/API.md → DELETE /categories/:id), so when it is missing it is
+ * re-created here — title "Other", color #6B7280, appended to the list's
+ * category order — i.e. "Other" is recreatable and the default exists for the
+ * list's lifetime. Callers run this inside the same transaction as the item
+ * insert; the per-(list, title) unique index makes a concurrent re-creation a
+ * no-op whose loser reuses the winner's row, so "Other" is never duplicated.
  */
 function defaultCategoryId(db: Db, listId: string): string {
-  const category = db
+  const existing = db
     .select({ id: categories.id })
     .from(categories)
     .where(and(eq(categories.listId, listId), eq(categories.title, DEFAULT_CATEGORY_TITLE)))
     .get();
-  if (!category) {
+  if (existing) {
+    return existing.id;
+  }
+  const last = db
+    .select({ highest: max(categories.sortOrder) })
+    .from(categories)
+    .where(eq(categories.listId, listId))
+    .get();
+  db.insert(categories)
+    .values({
+      id: createId(),
+      listId,
+      title: DEFAULT_CATEGORY_TITLE,
+      color: DEFAULT_CATEGORY_COLOR,
+      sortOrder: (last?.highest ?? -1) + 1,
+    })
+    .onConflictDoNothing()
+    .run();
+  const recreated = db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(and(eq(categories.listId, listId), eq(categories.title, DEFAULT_CATEGORY_TITLE)))
+    .get();
+  if (!recreated) {
     throw new FastifyHttpError(
       500,
       "INTERNAL_ERROR",
       `List ${listId} is missing its default "Other" category`,
     );
   }
-  return category.id;
+  return recreated.id;
 }
 
 /** Rejects categoryId values that do not belong to the list (400, docs/API.md → Conventions). */
@@ -170,34 +199,40 @@ export function getItemDetail(db: Db, itemId: string, now: Date = new Date()): I
   };
 }
 
-/** Creates a TO_BUY item appended to the end of the section (sortOrder = max+1). */
+/**
+ * Creates a TO_BUY item appended to the end of the section (sortOrder = max+1).
+ * Runs in one transaction together with the (self-healing) default-category
+ * fallback, so a re-created "Other" and the new item commit atomically (T37).
+ */
 export function createItem(
   db: Db,
   listId: string,
   request: CreateItemRequest,
   now: Date = new Date(),
 ): Item {
-  const categoryId = request.categoryId ?? defaultCategoryId(db, listId);
-  requireCategoryInList(db, listId, categoryId);
-  const row = db
-    .insert(items)
-    .values({
-      id: createId(),
-      listId,
-      categoryId,
-      title: request.title,
-      qtyText: request.qtyText ?? null,
-      status: "TO_BUY",
-      sortOrder: highestSortOrder(db, listId, "TO_BUY") + 1,
-      addedAt: now,
-    })
-    .returning()
-    .get();
-  const category = db.select().from(categories).where(eq(categories.id, categoryId)).get();
-  if (!category) {
-    throw new FastifyHttpError(500, "INTERNAL_ERROR", `Category ${categoryId} is missing`);
-  }
-  return toItemDto({ item: row, category }, now, currentPriceOf(db, row.id));
+  return db.transaction((tx) => {
+    const categoryId = request.categoryId ?? defaultCategoryId(tx, listId);
+    requireCategoryInList(tx, listId, categoryId);
+    const row = tx
+      .insert(items)
+      .values({
+        id: createId(),
+        listId,
+        categoryId,
+        title: request.title,
+        qtyText: request.qtyText ?? null,
+        status: "TO_BUY",
+        sortOrder: highestSortOrder(tx, listId, "TO_BUY") + 1,
+        addedAt: now,
+      })
+      .returning()
+      .get();
+    const category = tx.select().from(categories).where(eq(categories.id, categoryId)).get();
+    if (!category) {
+      throw new FastifyHttpError(500, "INTERNAL_ERROR", `Category ${categoryId} is missing`);
+    }
+    return toItemDto({ item: row, category }, now, currentPriceOf(tx, row.id));
+  });
 }
 
 /** Applies a partial update; every field is optional (docs/API.md → Items). */

@@ -8,6 +8,19 @@ import { FastifyHttpError } from "../errors";
 const categoryNotFound = (categoryId: string) =>
   new FastifyHttpError(404, "NOT_FOUND", `Category ${categoryId} not found`);
 
+const duplicateTitleConflict = (title: string) =>
+  new FastifyHttpError(409, "CONFLICT", `A category titled "${title}" already exists in this list`);
+
+/** better-sqlite3 unique-index violation (categories are unique per list+title). */
+function isUniqueTitleConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === "SQLITE_CONSTRAINT_UNIQUE"
+  );
+}
+
 type CategoryRow = typeof categories.$inferSelect;
 
 function toCategoryDto(row: CategoryRow, itemCount: number): Category {
@@ -46,7 +59,7 @@ export function listCategories(db: Db, listId: string): Category[] {
   return rows.map((row) => toCategoryDto(row, byCategory.get(row.id) ?? 0));
 }
 
-/** Creates a category appended to the end of the list's manual order. */
+/** Creates a category appended to the end of the list's manual order (409 on duplicate title). */
 export function createCategory(db: Db, listId: string, title: string, color: string): Category {
   const last = db
     .select({ highest: max(categories.sortOrder) })
@@ -55,12 +68,19 @@ export function createCategory(db: Db, listId: string, title: string, color: str
     .get();
   const sortOrder = (last?.highest ?? -1) + 1;
 
-  const row = db
-    .insert(categories)
-    .values({ id: createId(), listId, title, color, sortOrder })
-    .returning()
-    .get();
-  return toCategoryDto(row, 0);
+  try {
+    const row = db
+      .insert(categories)
+      .values({ id: createId(), listId, title, color, sortOrder })
+      .returning()
+      .get();
+    return toCategoryDto(row, 0);
+  } catch (error) {
+    if (isUniqueTitleConflict(error)) {
+      throw duplicateTitleConflict(title);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -77,12 +97,21 @@ export function updateCategory(db: Db, categoryId: string, patch: UpdateCategory
   }
 
   if (Object.keys(set).length > 0) {
-    const updated = db
-      .update(categories)
-      .set(set)
-      .where(eq(categories.id, categoryId))
-      .returning()
-      .get();
+    let updated: CategoryRow | undefined;
+    try {
+      updated = db
+        .update(categories)
+        .set(set)
+        .where(eq(categories.id, categoryId))
+        .returning()
+        .get();
+    } catch (error) {
+      // A color-only patch cannot violate the (list, title) unique index.
+      if (isUniqueTitleConflict(error) && set.title !== undefined) {
+        throw duplicateTitleConflict(set.title);
+      }
+      throw error;
+    }
     if (!updated) {
       throw categoryNotFound(categoryId);
     }
@@ -99,6 +128,9 @@ export function updateCategory(db: Db, categoryId: string, patch: UpdateCategory
 /**
  * Deletes a category unless items still reference it — SQLite enforces
  * `ON DELETE RESTRICT` (docs/DATA_MODEL.md), surfaced as 409 CONFLICT.
+ * The default "Other" category is deliberately deletable while empty: it is
+ * self-healing (itemService.defaultCategoryId re-creates it on the next
+ * fallback create), so no extra guard applies here (T37).
  */
 export function deleteCategory(db: Db, categoryId: string): void {
   const itemCount = countItems(db, categoryId);
