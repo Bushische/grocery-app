@@ -52,8 +52,11 @@ describe("auth flow (docs/TASKS.md → T14 Definition of Done)", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByText("Weekly")).toBeInTheDocument();
-    expect(screen.getByText("alex@example.com")).toBeInTheDocument();
     expect(screen.getByText("5 to buy · 2 bought")).toBeInTheDocument();
+
+    // The account block lives in the overlay menu (T30).
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    expect(await screen.findByTestId("menu-user-email")).toHaveTextContent("alex@example.com");
 
     const loginCall = mock.callsTo("POST", "/api/auth/login")[0];
     expect(loginCall?.body).toEqual({ email: "alex@example.com", password: "secret" });
@@ -96,6 +99,8 @@ describe("auth flow (docs/TASKS.md → T14 Definition of Done)", () => {
     const user = userEvent.setup();
 
     renderApp("/");
+    // Sign out lives in the overlay menu (T30).
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
     await user.click(await screen.findByRole("button", { name: "Sign out" }));
 
     expect(await screen.findByText("Sign in to your account")).toBeInTheDocument();

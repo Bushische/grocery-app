@@ -291,7 +291,9 @@ describe("T19 Definition of Done: color change reflects instantly in main screen
       backgroundColor: "#6B7280",
     });
 
-    await user.click(screen.getByRole("button", { name: "Categories" }));
+    // Since T30 the Categories entry lives in the overlay menu.
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    await user.click(await screen.findByRole("button", { name: "Categories" }));
     await user.click(await screen.findByRole("button", { name: "Edit Other" }));
     fireEvent.change(await screen.findByLabelText("Color"), { target: { value: "#ff0000" } });
     await user.click(screen.getByRole("button", { name: "Save" }));

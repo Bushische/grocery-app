@@ -342,6 +342,8 @@ describe("T20 Definition of Done: entry point is OWNER-only end to end", () => {
       </QueryClientProvider>,
     );
 
+    // Since T30 the Members entry lives in the overlay menu.
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
     await user.click(await screen.findByRole("button", { name: "Members" }));
     expect(await screen.findByTestId("member-row-u2")).toBeInTheDocument();
 
@@ -370,11 +372,19 @@ describe("T20 Definition of Done: entry point is OWNER-only end to end", () => {
       </QueryClientProvider>,
     );
 
+    // Since T30 the Members entry lives in the overlay menu, list switching
+    // goes through the menu's switcher, and tabs are gone from the main screen.
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
     expect(await screen.findByRole("button", { name: "Members" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
 
-    await user.click(screen.getByRole("tab", { name: "Party" }));
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    await user.click(await screen.findByRole("button", { name: "Party EDITOR" }));
+    await screen.findByRole("heading", { name: "Party" });
+    await user.click(screen.getByRole("button", { name: "Menu" }));
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument(),
     );
+    expect(screen.queryByRole("button", { name: "Delete list" })).not.toBeInTheDocument();
   });
 });
