@@ -330,3 +330,47 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
 - **Definition of Done:** typing shows ≤ 3 suggestions in an overlay above the input without
   moving it; selecting/creating/dismissing works by tap; keyboard (Escape) closes it.
 - **Dependencies:** T17, T26.
+
+## Phase F — Security hardening (audit follow-ups)
+
+> From the authorization audit: per-list item/category management (EDITOR/OWNER roles) stays as
+> contracted in docs/API.md — the global `users.role='admin'` governs user management only.
+> `/static` images intentionally stay public (decision: no auth gate, hash names suffice).
+
+### T33 — Admin-only user endpoints authorization *(security)*
+- **Goal:** Enforce the global admin role where it must apply: user management (T31/T32
+  endpoints) — and nowhere else (list-item management remains per-list-role per docs/API.md).
+- **Inputs:** docs/API.md (Users — admin only), docs/PROJECT.md (Auth), audit gap 3.
+- **Outputs:** `requireAdmin` preHandler in `apps/api/src/plugins/auth.ts` (checks
+  `request.user.role === 'admin'` → 403 otherwise, works for JWT and API-token auth — API-token
+  auth re-reads the users row so it is always fresh); wired onto every `/users` route in T31;
+  shared zod user schemas. Add integration tests: admin → 2xx on user management, plain `user`
+  → 403, VIEWER/EDITOR/OWNER list roles grant nothing there.
+- **Definition of Done:** non-admin cannot list/create/delete users (403); admin can; existing
+  item/list role tests stay green (no admin requirement leaked onto item routes).
+- **Dependencies:** T31.
+
+### T34 — CORS_ORIGIN required in production *(security)*
+- **Goal:** Fix: unset `CORS_ORIGIN` currently means "reflect any origin" with
+  `credentials: true` (config.ts) — any website can make credentialed requests against a prod
+  deploy that forgot the variable (prod compose defaults it to empty).
+- **Inputs:** audit gap 2, apps/api/src/config.ts, docker-compose.prod.yml.
+- **Outputs:** in production (`NODE_ENV=production`) an empty/whitespace `CORS_ORIGIN` is a
+  boot-time config error (same pattern as the JWT_SECRET check); non-prod keeps the permissive
+  default; reflect-list semantics unchanged when set; update `.env.prod.example` and
+  docker-compose.prod.yml comments accordingly.
+- **Definition of Done:** boot with NODE_ENV=production and no CORS_ORIGIN → exits with an
+  explicit error message; boot with a value → fine; dev/`NODE_ENV` unset still boots; tests
+  cover all three.
+- **Dependencies:** T4.5 (config).
+
+### T35 — Forbid creating a second OWNER via member add *(security/bug)*
+- **Goal:** Fix: `POST /lists/:id/members` accepts `role: "OWNER"`, creating a second owner and
+  breaking the one-owner invariant the PATCH/DELETE member routes protect.
+- **Inputs:** audit gap 4, docs/API.md (Lists — members), docs/PROJECT.md (one owner per list).
+- **Outputs:** addListMemberRequestSchema rejects `role: "OWNER"` (validation error 400) —
+  ownership is established by list creation and never granted via the members API; keep the
+  existing owner-immutable protections in PATCH/DELETE; test that adding a member as OWNER → 400
+  and the owner count stays 1.
+- **Definition of Done:** OWNER add → 400; existing member add/edit/remove tests green.
+- **Dependencies:** T6.

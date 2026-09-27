@@ -1,8 +1,10 @@
 import {
   type Category,
+  type CreateCategoryRequest,
   type ItemsResponse,
   type UpdateCategoryRequest,
   categorySchema,
+  createCategoryRequestSchema,
   itemsResponseSchema,
   updateCategoryRequestSchema,
 } from "@grocery/shared";
@@ -10,6 +12,13 @@ import { api } from "../../../lib/api";
 
 /** Category mutations + the category-filtered item read (docs/API.md → Categories). */
 export const categoriesApi = {
+  /** POST /lists/:id/categories — appends a category (EDITOR+, enforced server-side). */
+  create: (listId: string, body: CreateCategoryRequest): Promise<Category> =>
+    api.post(
+      `/lists/${listId}/categories`,
+      createCategoryRequestSchema.parse(body),
+      categorySchema,
+    ),
   /** PATCH /categories/:id — partial edit of title/color (EDITOR+, enforced server-side). */
   update: (categoryId: string, patch: UpdateCategoryRequest): Promise<Category> =>
     api.patch(

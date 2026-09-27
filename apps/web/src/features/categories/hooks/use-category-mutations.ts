@@ -1,4 +1,4 @@
-import type { Category, Item, UpdateCategoryRequest } from "@grocery/shared";
+import type { Category, CreateCategoryRequest, Item, UpdateCategoryRequest } from "@grocery/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { categoriesQueryKey } from "../../lists/hooks/use-categories";
 import { itemsQueryKey } from "../../lists/hooks/use-items";
@@ -105,6 +105,22 @@ export function useUpdateCategory(listId: string) {
       void queryClient.invalidateQueries({
         queryKey: categoryItemsQueryKey(variables.categoryId),
       });
+    },
+  });
+}
+
+/**
+ * POST /lists/:id/categories (docs/TASKS.md → T25): the server appends the
+ * category (sortOrder = max+1, itemCount 0), so the refetched list places it
+ * last — no optimistic insert needed (the response carries the server id).
+ */
+export function useCreateCategory(listId: string) {
+  const queryClient = useQueryClient();
+  const categoriesKey = categoriesQueryKey(listId);
+  return useMutation({
+    mutationFn: (body: CreateCategoryRequest) => categoriesApi.create(listId, body),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: categoriesKey });
     },
   });
 }

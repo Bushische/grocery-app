@@ -102,6 +102,19 @@ function stubWorld(mock: ReturnType<typeof createApiFetchMock>, world: MockWorld
     world.categories = world.categories.filter((category) => category.id !== "c2");
     return json(204);
   });
+  // POST /lists/:id/categories (docs/TASKS.md → T25) — server appends (sortOrder = max+1).
+  mock.on("POST", "/api/lists/l1/categories", ({ body }): MockResponseSpec => {
+    const request = body as { title?: string; color?: string };
+    const created = {
+      id: `c${world.categories.length + 1}`,
+      title: request.title ?? "",
+      color: request.color ?? "#000000",
+      sortOrder: world.categories.length,
+      itemCount: 0,
+    };
+    world.categories = [...world.categories, created];
+    return json(201, created);
+  });
 }
 
 describe("CategoriesPage (docs/TASKS.md → T19)", () => {
@@ -295,5 +308,106 @@ describe("T19 Definition of Done: color change reflects instantly in main screen
     expect(refreshedRow.querySelector("span[aria-hidden='true']")).toHaveStyle({
       backgroundColor: "#ff0000",
     });
+  });
+});
+
+describe("T25: always-available Add category affordance", () => {
+  it("creates a category while ≥ 1 category already exists (DoD): POST body, row appended, form closes", async () => {
+    const mock = createApiFetchMock();
+    const world = initialWorld();
+    stubWorld(mock, world);
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage("EDITOR");
+
+    await user.click(await screen.findByRole("button", { name: "Add category" }));
+    expect(await screen.findByRole("form", { name: "Create category" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Title"), "Produce");
+    // <input type="color"> normalizes its value to lowercase.
+    fireEvent.change(screen.getByLabelText("Color"), { target: { value: "#10b981" } });
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(mock.callsTo("POST", "/api/lists/l1/categories")).toHaveLength(1);
+    expect(mock.callsTo("POST", "/api/lists/l1/categories")[0]?.body).toEqual({
+      title: "Produce",
+      color: "#10b981",
+    });
+    // The refetched categories render the appended row.
+    const created = await screen.findByTestId("category-row-c3");
+    expect(created).toHaveTextContent("Produce");
+    expect(created).toHaveTextContent("0 items");
+    expect(screen.queryByRole("form", { name: "Create category" })).not.toBeInTheDocument();
+  });
+
+  it("offers Add category in the empty state and creates from it", async () => {
+    const mock = createApiFetchMock();
+    const world = { ...initialWorld(), categories: [], items: [] };
+    stubWorld(mock, world);
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage("EDITOR");
+
+    expect(await screen.findByText("No categories yet.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add category" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.type(await screen.findByLabelText("Title"), "Produce");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByTestId("category-row-c1")).toBeInTheDocument();
+    expect(screen.getByTestId("category-row-c1")).toHaveTextContent("Produce");
+    expect(screen.queryByText("No categories yet.")).not.toBeInTheDocument();
+  });
+
+  it("hides Add category from a VIEWER (server would answer 403)", async () => {
+    const mock = createApiFetchMock();
+    stubWorld(mock, initialWorld());
+    mock.stub();
+
+    renderPage("VIEWER");
+
+    expect(await screen.findByTestId("category-row-c1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add category" })).not.toBeInTheDocument();
+  });
+
+  it("blocks an empty title client-side without calling the API", async () => {
+    const mock = createApiFetchMock();
+    stubWorld(mock, initialWorld());
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage("EDITOR");
+
+    await user.click(await screen.findByRole("button", { name: "Add category" }));
+    await user.click(await screen.findByRole("button", { name: "Create" }));
+
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(mock.callsTo("POST", "/api/lists/l1/categories")).toHaveLength(0);
+  });
+
+  it("keeps the form open with an error when creation fails", async () => {
+    const mock = createApiFetchMock();
+    const world = initialWorld();
+    stubWorld(mock, world);
+    mock.on("POST", "/api/lists/l1/categories", () =>
+      json(500, { error: { code: "INTERNAL_ERROR", message: "boom" } }),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage("EDITOR");
+
+    await user.click(await screen.findByRole("button", { name: "Add category" }));
+    await user.type(await screen.findByLabelText("Title"), "Produce");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(
+      await screen.findByText("Could not create the category. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "Create category" })).toBeInTheDocument();
+    expect(screen.queryByTestId("category-row-c3")).not.toBeInTheDocument();
   });
 });
