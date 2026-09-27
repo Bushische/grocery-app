@@ -2,7 +2,7 @@ import type { ListRole } from "@grocery/shared";
 import { eq } from "drizzle-orm";
 import type { preHandlerHookHandler } from "fastify";
 import { z } from "zod";
-import { categories } from "../db/schema";
+import { categories, items } from "../db/schema";
 import { FastifyHttpError } from "../errors";
 import { requireMembership, roleRank } from "../services/listService";
 
@@ -50,6 +50,30 @@ export function requireCategoryRole(minimum: ListRole): preHandlerHookHandler {
       throw new FastifyHttpError(404, "NOT_FOUND", `Category ${categoryId} not found`);
     }
     const role = requireMembership(request.server.db, category.listId, request.user.id);
+    if (roleRank(role) < roleRank(minimum)) {
+      throw new FastifyHttpError(403, "FORBIDDEN", `This action requires the ${minimum} role`);
+    }
+    request.listRole = role;
+  };
+}
+
+/**
+ * Same rules for routes addressing an *item* as `:id` (docs/API.md → Items):
+ * resolves the owning list first — unknown item → 404, non-member or
+ * insufficient role → 403.
+ */
+export function requireItemRole(minimum: ListRole): preHandlerHookHandler {
+  return async (request, _reply) => {
+    const { id: itemId } = idParamsSchema.parse(request.params);
+    const item = request.server.db
+      .select({ listId: items.listId })
+      .from(items)
+      .where(eq(items.id, itemId))
+      .get();
+    if (!item) {
+      throw new FastifyHttpError(404, "NOT_FOUND", `Item ${itemId} not found`);
+    }
+    const role = requireMembership(request.server.db, item.listId, request.user.id);
     if (roleRank(role) < roleRank(minimum)) {
       throw new FastifyHttpError(403, "FORBIDDEN", `This action requires the ${minimum} role`);
     }

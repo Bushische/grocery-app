@@ -14,6 +14,7 @@ import { applyErrorHandling } from "./plugins/error-handler";
 import { authRoutes } from "./routes/auth";
 import { categoryRoutes } from "./routes/categories";
 import { healthRoutes } from "./routes/health";
+import { itemRoutes } from "./routes/items";
 import { listRoutes } from "./routes/lists";
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
@@ -57,6 +58,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(authRoutes);
   app.register(listRoutes);
   app.register(categoryRoutes);
+  app.register(itemRoutes);
 
   return app;
 }

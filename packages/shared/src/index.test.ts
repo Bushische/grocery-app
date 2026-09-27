@@ -4,14 +4,22 @@ import {
   addListMemberRequestSchema,
   categorySchema,
   createCategoryRequestSchema,
+  createItemRequestSchema,
   createListRequestSchema,
   hexColorSchema,
+  itemDetailSchema,
   itemSchema,
+  itemStatusByFilter,
+  itemStatusFilterSchema,
   listRoleSchema,
   listSummarySchema,
   loginRequestSchema,
   loginResponseSchema,
+  priceObservationSchema,
+  smartAddRequestSchema,
+  smartAddResponseSchema,
   updateCategoryRequestSchema,
+  updateItemRequestSchema,
 } from "./index";
 
 describe("shared package", () => {
@@ -160,5 +168,120 @@ describe("item schemas", () => {
     expect(
       itemSchema.safeParse({ ...item, category: { ...item.category, color: "red" } }).success,
     ).toBe(false);
+  });
+});
+
+describe("item request schemas", () => {
+  it("createItemRequestSchema requires a title and allows optional category/qty", () => {
+    expect(createItemRequestSchema.parse({ title: " Milk " })).toEqual({ title: "Milk" });
+    expect(
+      createItemRequestSchema.parse({ title: "Milk", categoryId: "c1", qtyText: " 2x " }),
+    ).toEqual({ title: "Milk", categoryId: "c1", qtyText: "2x" });
+    expect(createItemRequestSchema.parse({ title: "Milk", qtyText: null })).toEqual({
+      title: "Milk",
+      qtyText: null,
+    });
+    expect(createItemRequestSchema.safeParse({}).success).toBe(false);
+    expect(createItemRequestSchema.safeParse({ title: "" }).success).toBe(false);
+    expect(createItemRequestSchema.safeParse({ title: "Milk", qtyText: "  " }).success).toBe(false);
+  });
+
+  it("updateItemRequestSchema allows partial patches and clearing qtyText with null", () => {
+    expect(updateItemRequestSchema.parse({})).toEqual({});
+    expect(updateItemRequestSchema.parse({ title: " Bread ", qtyText: null })).toEqual({
+      title: "Bread",
+      qtyText: null,
+    });
+    expect(updateItemRequestSchema.safeParse({ title: "" }).success).toBe(false);
+    expect(updateItemRequestSchema.safeParse({ qtyText: "" }).success).toBe(false);
+  });
+
+  it("smartAddRequestSchema trims and requires non-empty text", () => {
+    expect(smartAddRequestSchema.parse({ text: " semi milk " })).toEqual({ text: "semi milk" });
+    expect(smartAddRequestSchema.safeParse({}).success).toBe(false);
+    expect(smartAddRequestSchema.safeParse({ text: "   " }).success).toBe(false);
+  });
+});
+
+describe("smartAddResponseSchema", () => {
+  const item = {
+    id: "i1",
+    title: "Milk",
+    qtyText: "2x",
+    status: "TO_BUY",
+    sortOrder: 0,
+    addedAt: "2026-09-27T08:00:00.000Z",
+    daysInList: 3,
+    category: { id: "c1", title: "Dairy", color: "#3B82F6" },
+    imageFilename: null,
+  };
+
+  it("accepts created/matchedBy/item and validates matchedBy values", () => {
+    expect(smartAddResponseSchema.parse({ created: false, matchedBy: "exact", item })).toEqual({
+      created: false,
+      matchedBy: "exact",
+      item,
+    });
+    for (const matchedBy of ["substring", "fuzzy"] as const) {
+      expect(smartAddResponseSchema.parse({ created: false, matchedBy, item }).matchedBy).toBe(
+        matchedBy,
+      );
+    }
+    expect(
+      smartAddResponseSchema.parse({ created: true, matchedBy: "created", item }).created,
+    ).toBe(true);
+  });
+
+  it("rejects unknown matchedBy values and missing fields", () => {
+    expect(
+      smartAddResponseSchema.safeParse({ created: false, matchedBy: "regex", item }).success,
+    ).toBe(false);
+    expect(smartAddResponseSchema.safeParse({ created: false, matchedBy: "exact" }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe("price observation schemas", () => {
+  it("priceObservationSchema requires positive decimal price, shop, ISO date", () => {
+    const value = { price: 1.99, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" };
+    expect(priceObservationSchema.parse(value)).toEqual(value);
+    expect(priceObservationSchema.safeParse({ ...value, price: 0 }).success).toBe(false);
+    expect(priceObservationSchema.safeParse({ ...value, price: -1 }).success).toBe(false);
+    expect(priceObservationSchema.safeParse({ ...value, shop: "" }).success).toBe(false);
+    expect(priceObservationSchema.safeParse({ ...value, observedAt: "yesterday" }).success).toBe(
+      false,
+    );
+  });
+
+  it("itemDetailSchema extends the item DTO with the prices array", () => {
+    const item = {
+      id: "i1",
+      title: "Milk",
+      qtyText: null,
+      status: "TO_BUY",
+      sortOrder: 0,
+      addedAt: "2026-09-27T08:00:00.000Z",
+      daysInList: 3,
+      category: { id: "c1", title: "Dairy", color: "#3B82F6" },
+      imageFilename: null,
+    };
+    const detail = {
+      ...item,
+      prices: [{ price: 1.99, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" }],
+    };
+    expect(itemDetailSchema.parse(detail)).toEqual(detail);
+    expect(itemDetailSchema.safeParse(item).success).toBe(false);
+  });
+});
+
+describe("itemStatusFilterSchema", () => {
+  it("accepts only the to_buy/bought query values and maps them to statuses", () => {
+    expect(itemStatusFilterSchema.parse("to_buy")).toBe("to_buy");
+    expect(itemStatusFilterSchema.parse("bought")).toBe("bought");
+    expect(itemStatusFilterSchema.safeParse("TO_BUY").success).toBe(false);
+    expect(itemStatusFilterSchema.safeParse("all").success).toBe(false);
+    expect(itemStatusByFilter.to_buy).toBe("TO_BUY");
+    expect(itemStatusByFilter.bought).toBe("BOUGHT");
   });
 });

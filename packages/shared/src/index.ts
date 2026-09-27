@@ -138,6 +138,19 @@ export type UpdateCategoryRequest = z.infer<typeof updateCategoryRequestSchema>;
 
 export const itemStatusSchema = z.enum(["TO_BUY", "BOUGHT"]);
 
+/** `?status=` values of `GET /lists/:id/items` (docs/API.md → Items). */
+export const itemStatusFilterSchema = z.enum(["to_buy", "bought"]);
+export type ItemStatusFilter = z.infer<typeof itemStatusFilterSchema>;
+
+/** Maps a `?status=` filter value to the stored status enum. */
+export const itemStatusByFilter: Record<ItemStatusFilter, ItemStatus> = {
+  to_buy: "TO_BUY",
+  bought: "BOUGHT",
+};
+
+/** Optional free-text quantity like "2x" or "500g" (docs/DATA_MODEL.md → items.qty_text). */
+export const qtyTextSchema = z.string().trim().min(1);
+
 /** Category reference embedded in item reads. */
 export const itemCategorySchema = z.object({
   id: z.string().min(1),
@@ -163,3 +176,45 @@ export type Item = z.infer<typeof itemSchema>;
 /** Envelope of the item-collection endpoints (`GET /lists/:id/items`, `GET /categories/:id/items`). */
 export const itemsResponseSchema = z.object({ items: z.array(itemSchema) });
 export type ItemsResponse = z.infer<typeof itemsResponseSchema>;
+
+export const createItemRequestSchema = z.object({
+  title: titleSchema,
+  categoryId: z.string().min(1).optional(),
+  qtyText: qtyTextSchema.nullable().optional(),
+});
+export type CreateItemRequest = z.infer<typeof createItemRequestSchema>;
+
+/** `PATCH /items/:id` — every field optional; `qtyText: null` clears it. */
+export const updateItemRequestSchema = z.object({
+  title: titleSchema.optional(),
+  categoryId: z.string().min(1).optional(),
+  qtyText: qtyTextSchema.nullable().optional(),
+});
+export type UpdateItemRequest = z.infer<typeof updateItemRequestSchema>;
+
+/** `POST /lists/:id/items/smart-add` — free text from the bottom input box. */
+export const smartAddRequestSchema = z.object({ text: titleSchema });
+export type SmartAddRequest = z.infer<typeof smartAddRequestSchema>;
+
+/** How smart-add resolved the input (docs/API.md → Items, algorithm steps 1–4). */
+export const smartAddMatchedBySchema = z.enum(["exact", "substring", "fuzzy", "created"]);
+export type SmartAddMatchedBy = z.infer<typeof smartAddMatchedBySchema>;
+
+export const smartAddResponseSchema = z.object({
+  created: z.boolean(),
+  matchedBy: smartAddMatchedBySchema,
+  item: itemSchema,
+});
+export type SmartAddResponse = z.infer<typeof smartAddResponseSchema>;
+
+/** Price observation as returned by the API — money as a decimal number (docs/API.md → Conventions). */
+export const priceObservationSchema = z.object({
+  price: z.number().positive(),
+  shop: z.string().min(1),
+  observedAt: isoDateTimeSchema,
+});
+export type PriceObservation = z.infer<typeof priceObservationSchema>;
+
+/** Response of `GET /items/:id` — the item plus its price history, newest first. */
+export const itemDetailSchema = itemSchema.extend({ prices: z.array(priceObservationSchema) });
+export type ItemDetail = z.infer<typeof itemDetailSchema>;
