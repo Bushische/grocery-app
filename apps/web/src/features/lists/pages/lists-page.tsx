@@ -5,6 +5,7 @@ import { useSession } from "../../auth/hooks/use-session";
 import type { CategoriesNavigationState } from "../../categories/pages/categories-page";
 import { AddItemInput } from "../../items/components/add-item-input";
 import { ItemSectionsContainer } from "../../items/components/item-sections-container";
+import type { MembersNavigationState } from "../../members/pages/members-page";
 import { CreateListForm } from "../components/create-list-form";
 import { DeleteListButton } from "../components/delete-list-button";
 import { ListTabs } from "../components/list-tabs";
@@ -98,6 +99,19 @@ export function ListsPage() {
                     {selectedList.itemCounts.toBuy} to buy · {selectedList.itemCounts.bought} bought
                   </p>
                   <div className="flex items-center gap-2">
+                    {selectedList.role === "OWNER" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void navigate(`/lists/${selectedList.id}/members`, {
+                            state: { role: selectedList.role } satisfies MembersNavigationState,
+                          })
+                        }
+                        className="min-h-10 rounded-lg px-3 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+                      >
+                        Members
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() =>

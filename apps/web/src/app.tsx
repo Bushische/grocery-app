@@ -5,6 +5,7 @@ import { CategoriesPage } from "./features/categories/pages/categories-page";
 import { CategoryItemsPage } from "./features/categories/pages/category-items-page";
 import { ItemDetailsPage } from "./features/items/pages/item-details-page";
 import { ListsPage } from "./features/lists/pages/lists-page";
+import { MembersPage } from "./features/members/pages/members-page";
 
 export function App() {
   return (
@@ -38,6 +39,14 @@ export function App() {
         element={
           <RequireAuth>
             <CategoriesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/lists/:listId/members"
+        element={
+          <RequireAuth>
+            <MembersPage />
           </RequireAuth>
         }
       />
