@@ -20,6 +20,7 @@ import { itemRoutes } from "./routes/items";
 import { listRoutes } from "./routes/lists";
 import { priceRoutes } from "./routes/prices";
 import { searchRoutes } from "./routes/search";
+import { userRoutes } from "./routes/users";
 
 export type AppDependencies = { db?: Db };
 
@@ -67,6 +68,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   registerAuth(app, config.jwtSecret);
   app.register(healthRoutes);
   app.register(authRoutes);
+  app.register(userRoutes);
   app.register(apiTokenRoutes);
   app.register(listRoutes);
   app.register(categoryRoutes);

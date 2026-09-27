@@ -10,6 +10,7 @@ import {
   createItemRequestSchema,
   createListRequestSchema,
   createPriceObservationRequestSchema,
+  createUserRequestSchema,
   hexColorSchema,
   itemDetailSchema,
   itemImageResponseSchema,
@@ -31,6 +32,7 @@ import {
   suggestResponseSchema,
   updateCategoryRequestSchema,
   updateItemRequestSchema,
+  userSchema,
 } from "./index";
 
 describe("shared package", () => {
@@ -266,6 +268,46 @@ describe("smartAddResponseSchema", () => {
     expect(smartAddResponseSchema.safeParse({ created: false, matchedBy: "exact" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("user schemas (T31)", () => {
+  it("userSchema requires id, email, role, and an ISO createdAt", () => {
+    const value = {
+      id: "u1",
+      email: "mom@example.com",
+      role: "user",
+      createdAt: "2026-09-27T08:00:00.000Z",
+    };
+    expect(userSchema.parse(value)).toEqual(value);
+    expect(userSchema.parse({ ...value, role: "admin" }).role).toBe("admin");
+    expect(userSchema.safeParse({ ...value, role: "owner" }).success).toBe(false);
+    expect(userSchema.safeParse({ ...value, createdAt: "yesterday" }).success).toBe(false);
+    expect(userSchema.safeParse({ id: "u1", email: "mom@example.com", role: "user" }).success).toBe(
+      false,
+    );
+  });
+
+  it("createUserRequestSchema normalizes the email and requires password and role", () => {
+    expect(
+      createUserRequestSchema.parse({
+        email: " Mom@Example.COM ",
+        password: "secret",
+        role: "user",
+      }),
+    ).toEqual({ email: "mom@example.com", password: "secret", role: "user" });
+    expect(
+      createUserRequestSchema.safeParse({ email: "nope", password: "x", role: "user" }).success,
+    ).toBe(false);
+    expect(
+      createUserRequestSchema.safeParse({ email: "a@b.co", password: "", role: "user" }).success,
+    ).toBe(false);
+    expect(createUserRequestSchema.safeParse({ email: "a@b.co", password: "x" }).success).toBe(
+      false,
+    );
+    expect(
+      createUserRequestSchema.safeParse({ email: "a@b.co", password: "x", role: "OWNER" }).success,
+    ).toBe(false);
   });
 });
 

@@ -68,6 +68,18 @@ export const requireAuth: preHandlerHookHandler = async (request, _reply) => {
   }
 };
 
+/**
+ * Middleware (docs/API.md → Users): requires the global admin role on
+ * `request.user` — populated by requireAuth, either from the JWT claims or
+ * from the users row for API-token auth (which is always fresh). List roles
+ * (VIEWER/EDITOR/OWNER) grant nothing here. Must run after requireAuth.
+ */
+export const requireAdmin: preHandlerHookHandler = async (request, _reply) => {
+  if (request.user.role !== "admin") {
+    throw new FastifyHttpError(403, "FORBIDDEN", "This action requires the admin role");
+  }
+};
+
 /** Extracts the credential from a `Bearer <token>` header. */
 function authHeaderToken(header: string | undefined): string | undefined {
   if (!header?.startsWith("Bearer ")) return undefined;

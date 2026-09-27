@@ -132,6 +132,25 @@ export const updateCategoryRequestSchema = z.object({
 });
 export type UpdateCategoryRequest = z.infer<typeof updateCategoryRequestSchema>;
 
+// --- Users (docs/API.md → Users; docs/TASKS.md → T31) ---
+
+/** Row of `GET /users` and the response of `POST /users` (admin-only endpoints). */
+export const userSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().min(1),
+  role: z.enum(["user", "admin"]),
+  createdAt: isoDateTimeSchema,
+});
+export type UserDto = z.infer<typeof userSchema>;
+
+/** Request of `POST /users` — the password is bcrypt-hashed before persistence. */
+export const createUserRequestSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1),
+  role: z.enum(["user", "admin"]),
+});
+export type CreateUserRequest = z.infer<typeof createUserRequestSchema>;
+
 // --- Prices (docs/API.md → Prices; docs/DATA_MODEL.md → priceObservations) ---
 
 /** Price observation as returned by the API — money as a decimal number (docs/API.md → Conventions). */
