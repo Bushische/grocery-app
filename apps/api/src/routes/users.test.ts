@@ -13,14 +13,18 @@ import { users } from "../db/schema";
 const ADMIN = { email: "admin@example.com", password: "admin-password" };
 const PLAIN = { email: "plain@example.com", password: "plain-password" };
 const OUTSIDER = { email: "outsider@example.com", password: "outsider-password" };
+const VIEWER = { email: "viewer@example.com", password: "viewer-password" };
 
 let app: FastifyInstance;
 let db: Db;
 let adminToken: string;
 let plainToken: string;
 let outsiderToken: string;
+let viewerToken: string;
 let adminId: string;
 let plainId: string;
+/** PLAIN's list — PLAIN is its OWNER, OUTSIDER its EDITOR, VIEWER its VIEWER. */
+let plainListId: string;
 
 function buildTestApp(): { app: FastifyInstance; db: Db } {
   const sqlite = createSqlite(":memory:");
@@ -68,6 +72,7 @@ beforeAll(async () => {
         { ...ADMIN, role: "admin" as const },
         { ...PLAIN, role: "user" as const },
         { ...OUTSIDER, role: "user" as const },
+        { ...VIEWER, role: "user" as const },
       ].map((user) => ({
         id: createId(),
         email: user.email,
@@ -83,9 +88,10 @@ beforeAll(async () => {
   adminToken = await accessTokenOf(ADMIN.email, ADMIN.password);
   plainToken = await accessTokenOf(PLAIN.email, PLAIN.password);
   outsiderToken = await accessTokenOf(OUTSIDER.email, OUTSIDER.password);
+  viewerToken = await accessTokenOf(VIEWER.email, VIEWER.password);
 
-  // PLAIN owns a list (DELETE /users → 409); OUTSIDER is an EDITOR of it
-  // (per-list roles grant nothing on /users).
+  // PLAIN owns a list (DELETE /users → 409); OUTSIDER is an EDITOR and VIEWER
+  // a VIEWER of it (per-list roles grant nothing on /users — T33).
   const listRes = await app.inject({
     method: "POST",
     url: "/lists",
@@ -93,20 +99,26 @@ beforeAll(async () => {
     payload: { title: "Plain's list" },
   });
   expect(listRes.statusCode).toBe(201);
-  const memberRes = await app.inject({
-    method: "POST",
-    url: `/lists/${listRes.json().id as string}/members`,
-    headers: bearer(plainToken),
-    payload: { email: OUTSIDER.email, role: "EDITOR" },
-  });
-  expect(memberRes.statusCode).toBe(201);
+  plainListId = listRes.json().id as string;
+  for (const member of [
+    { email: OUTSIDER.email, role: "EDITOR" as const },
+    { email: VIEWER.email, role: "VIEWER" as const },
+  ]) {
+    const memberRes = await app.inject({
+      method: "POST",
+      url: `/lists/${plainListId}/members`,
+      headers: bearer(plainToken),
+      payload: member,
+    });
+    expect(memberRes.statusCode).toBe(201);
+  }
 });
 
 describe("GET /users", () => {
   it("lists every user with id, email, role, createdAt", async () => {
     const { status, body } = await listOfUsers(adminToken);
     expect(status).toBe(200);
-    expect(body.length).toBe(3);
+    expect(body.length).toBe(4);
     for (const row of body) {
       expect(Object.keys(row).sort()).toEqual(["createdAt", "email", "id", "role"]);
       expect(() => new Date(row.createdAt).toISOString()).not.toThrow();
@@ -320,5 +332,127 @@ describe("DELETE /users/:id", () => {
     expect(denied.statusCode).toBe(403);
     const unauth = await app.inject({ method: "DELETE", url: `/users/${plainId}` });
     expect(unauth.statusCode).toBe(401);
+  });
+});
+
+// --- T33 — admin-only authorization on /users (docs/API.md → Users) ---
+// The gate is `requireAdmin` (plugins/auth.ts): the GLOBAL role must be admin;
+// per-list VIEWER/EDITOR/OWNER roles grant nothing here — and the requirement
+// must not leak onto item routes, which stay per-list-role (docs/API.md).
+
+describe("T33: admin-only authorization", () => {
+  it("lets an admin use every user-management endpoint (2xx)", async () => {
+    expect((await listOfUsers(adminToken)).status).toBe(200);
+    const created = await app.inject({
+      method: "POST",
+      url: "/users",
+      headers: bearer(adminToken),
+      payload: { email: "t33-admin-target@example.com", password: "secret", role: "user" },
+    });
+    expect(created.statusCode).toBe(201);
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/users/${created.json().id as string}`,
+      headers: bearer(adminToken),
+    });
+    expect(deleted.statusCode).toBe(204);
+  });
+
+  it("denies every user-management endpoint to a plain non-member user (403)", async () => {
+    for (const token of [plainToken, viewerToken, outsiderToken]) {
+      const list = await app.inject({ method: "GET", url: "/users", headers: bearer(token) });
+      expect(list.statusCode).toBe(403);
+      expect(list.json().error.code).toBe("FORBIDDEN");
+      const create = await app.inject({
+        method: "POST",
+        url: "/users",
+        headers: bearer(token),
+        payload: { email: "denied-t33@example.com", password: "secret", role: "user" },
+      });
+      expect(create.statusCode).toBe(403);
+      const remove = await app.inject({
+        method: "DELETE",
+        url: `/users/${plainId}`,
+        headers: bearer(token),
+      });
+      expect(remove.statusCode).toBe(403);
+    }
+  });
+
+  it("denies every endpoint to VIEWER/EDITOR/OWNER list roles (403, nothing created)", async () => {
+    // PLAIN is the OWNER of plainListId yet globally "user"; OUTSIDER its EDITOR;
+    // VIEWER its VIEWER — all three must be rejected on all three endpoints.
+    for (const token of [plainToken, outsiderToken, viewerToken]) {
+      expect(
+        (await app.inject({ method: "GET", url: "/users", headers: bearer(token) })).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/users",
+            headers: bearer(token),
+            payload: { email: "role-denied-t33@example.com", password: "secret", role: "user" },
+          })
+        ).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await app.inject({
+            method: "DELETE",
+            url: `/users/${adminId}`,
+            headers: bearer(token),
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
+    const { body } = await listOfUsers(adminToken);
+    expect(body.some((row) => row.email === "role-denied-t33@example.com")).toBe(false);
+  });
+
+  it("rejects a non-admin API token for user management", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api-tokens",
+      headers: bearer(plainToken),
+      payload: { name: "non-admin-agent" },
+    });
+    expect(created.statusCode).toBe(201);
+    const res = await app.inject({
+      method: "GET",
+      url: "/users",
+      headers: bearer(created.json().token as string),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("FORBIDDEN");
+  });
+
+  it("does not leak the admin requirement onto item routes (list roles still rule)", async () => {
+    // OUTSIDER is a list EDITOR, PLAIN the list OWNER — both globally "user",
+    // both must still mutate items (per docs/API.md permissions matrix).
+    for (const token of [outsiderToken, plainToken]) {
+      const item = await app.inject({
+        method: "POST",
+        url: `/lists/${plainListId}/items`,
+        headers: bearer(token),
+        payload: { title: "T33 no-admin-leak" },
+      });
+      expect(item.statusCode).toBe(201);
+      const moved = await app.inject({
+        method: "POST",
+        url: `/items/${item.json().id as string}/move`,
+        headers: bearer(token),
+        payload: { status: "bought" },
+      });
+      expect(moved.statusCode).toBe(200);
+    }
+    // …while a VIEWER stays read-only on items, as before.
+    const viewerItem = await app.inject({
+      method: "POST",
+      url: `/lists/${plainListId}/items`,
+      headers: bearer(viewerToken),
+      payload: { title: "T33 viewer denied" },
+    });
+    expect(viewerItem.statusCode).toBe(403);
   });
 });
