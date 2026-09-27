@@ -53,6 +53,17 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   standard error shape; server boots < 2 s with < 60 MB RSS.
 - **Dependencies:** T1, T3.
 
+### T4.5 — Static cache headers *(new: post-T4 fix — `/static` was registered without caching)*
+- **Goal:** Item images are cached on the user's device; no repeat downloads.
+- **Inputs:** docs/ARCHITECTURE.md (Persistence), T10 (content-addressed filenames).
+- **Outputs:** `@fastify/static` registration in `apps/api/src/app.ts` gets `setHeaders` →
+  `Cache-Control: public, max-age=31536000, immutable` on `/static/*` responses; default ETag
+  stays enabled as fallback. Safe to cache forever because T10 uses content-addressed URLs
+  (`<id>-<hash>.webp`) — a re-upload changes the URL instead of the bytes at an old one.
+- **Definition of Done:** test: `GET /static/<file>` → 200 with the immutable cache header; all
+  existing api tests stay green; steady RSS still < 60 MB.
+- **Dependencies:** T4.
+
 ### T5 — Auth module *(modified: refresh rotation, hashes in SQLite)*
 - **Goal:** Login once; silent refresh works on mobile browsers.
 - **Inputs:** docs/PROJECT.md (Auth), docs/API.md (Auth), docs/DATA_MODEL.md (refreshTokens).
@@ -107,9 +118,11 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
 - **Goal:** Item reference images, lightweight.
 - **Inputs:** docs/API.md (Items — image), docs/ARCHITECTURE.md (Persistence).
 - **Outputs:** `POST /items/:id/image` (multipart, < 2 MB); `sharp` → 600 px webp at
-  `/data/images/<id>.webp`; served via `@fastify/static` at `/static`.
+  `/data/images/<id>-<contenthash>.webp` (hash of output bytes — content-addressed, so a
+  re-upload yields a new URL and long-lived device caching per T4.5 is safe); served via
+  `@fastify/static` at `/static` (cache headers set by T4.5).
 - **Definition of Done:** test: upload → file exists, dimensions ≤ 600 px, served over `/static`;
-  oversize file → 400.
+  re-upload changes the URL; oversize file → 400.
 - **Dependencies:** T8.
 
 ### T11 — Price observations + history
@@ -194,7 +207,9 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
 - **Inputs:** docs/PROJECT.md (Item Detail View), docs/API.md (Items, Prices).
 - **Outputs:** details view (long-press target): title, category select, qty, image upload +
   preview, price+shop form → `POST /items/:id/prices`, price history line chart via `uplot`
-  (X: date, Y: price, point labels price+shop).
+  (X: date, Y: price, point labels price+shop). Image upload downscales client-side before POST
+  (`createImageBitmap` + canvas: max 1200 px long edge, WebP q≈0.8) so phone photos (~12 MB)
+  become < ~500 KB on the wire; server-side `sharp` (T10) is the safety net, not the only resize.
 - **Definition of Done:** saving price adds a point to the chart; image round-trips.
 - **Dependencies:** T16, T10, T11.
 
@@ -254,7 +269,9 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
 - **Goal:** Installable app with instant loads.
 - **Inputs:** docs/PROJECT.md (Mobile & UX Constraints), docs/CONVENTIONS.md (Frontend).
 - **Outputs:** `vite-plugin-pwa`; manifest (name "My Groceries", icons, theme color); service
-  worker caching the static app shell; "Add to Home Screen" verified on Android + iOS.
-- **Definition of Done:** installed PWA opens full-screen, loads shell offline, no re-login after
-  reopening.
+  worker caching the static app shell **and runtime-caching `/static/*` with a cache-first
+  strategy** (immutable URLs per T10 — item images load from device cache/offline, no repeat
+  downloads); "Add to Home Screen" verified on Android + iOS.
+- **Definition of Done:** installed PWA opens full-screen, loads shell offline, item images load
+  from cache with no network request on repeat visit, no re-login after reopening.
 - **Dependencies:** T14 (code), verified at T24.

@@ -40,7 +40,16 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(cors, { credentials: true, origin: config.corsOrigins });
   app.register(cookie);
   app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES } });
-  app.register(fastifyStatic, { root: uploadsRoot, prefix: "/static/" });
+  // T4.5: images are content-addressed (T10: `<id>-<hash>.webp`), so bytes at a
+  // URL never change — cache them forever; a re-upload changes the URL instead.
+  // The default ETag stays enabled as a fallback for non-immutable use.
+  app.register(fastifyStatic, {
+    root: uploadsRoot,
+    prefix: "/static/",
+    setHeaders: (reply) => {
+      reply.header("cache-control", "public, max-age=31536000, immutable");
+    },
+  });
   registerAuth(app, config.jwtSecret);
   app.register(healthRoutes);
   app.register(authRoutes);

@@ -73,6 +73,17 @@ describe("plugins", () => {
     expect(res.body).toBe("static-ok");
   });
 
+  it("caches /static responses as immutable for one year (T4.5)", async () => {
+    const res = await app.inject({ method: "GET", url: "/static/probe.txt" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("keeps the default ETag on /static responses as fallback", async () => {
+    const res = await app.inject({ method: "GET", url: "/static/probe.txt" });
+    expect(res.headers.etag).toBeDefined();
+  });
+
   it("registers @fastify/helmet security headers", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
