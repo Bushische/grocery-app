@@ -15,6 +15,10 @@ export interface ItemRowProps {
  * One list row per docs/PROJECT.md → UX: left vertical category color bar,
  * title, optional quantity text, "3d" badge, and (TO_BUY only) a ≡ drag handle.
  *
+ * T36: BOUGHT rows follow the "Buy Me a Pie" convention — strikethrough title,
+ * muted gray content, desaturated color bar, and a dimmed row — while TO_BUY
+ * rows keep the normal look; interactions are unaffected.
+ *
  * T27: the whole row body is the toggle — tapping it moves the item
  * (TO_BUY → BOUGHT / BOUGHT → TO_BUY via `POST /items/:id/move`); the dedicated
  * Buy/Unbuy button is gone. Gesture disambiguation: drags start only from the ≡
@@ -25,6 +29,7 @@ export interface ItemRowProps {
  * is a failed drag attempt, never a toggle.
  */
 export function ItemRow({ item, sortable, onMove, onOpenDetails }: ItemRowProps) {
+  const bought = item.status === "BOUGHT";
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({
       id: item.id,
@@ -43,7 +48,7 @@ export function ItemRow({ item, sortable, onMove, onOpenDetails }: ItemRowProps)
       style={{
         transform: CSS.Transform.toString(transform),
         zIndex: isDragging ? 10 : undefined,
-        opacity: isDragging ? 0.85 : undefined,
+        opacity: isDragging ? 0.85 : bought ? 0.7 : undefined,
       }}
       className="flex items-stretch overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200"
       data-testid={`item-row-${item.id}`}
@@ -66,18 +71,38 @@ export function ItemRow({ item, sortable, onMove, onOpenDetails }: ItemRowProps)
       >
         <span
           aria-hidden="true"
-          className="w-1.5 shrink-0 self-stretch"
+          className={
+            bought
+              ? "w-1.5 shrink-0 self-stretch opacity-50 grayscale"
+              : "w-1.5 shrink-0 self-stretch"
+          }
           style={{ backgroundColor: item.category.color }}
         />
         <span className="min-w-0 flex-1 py-2.5 pl-3">
-          <span className="block truncate text-sm font-medium text-gray-900">{item.title}</span>
+          <span
+            className={
+              bought
+                ? "block truncate text-sm font-medium text-gray-400 line-through"
+                : "block truncate text-sm font-medium text-gray-900"
+            }
+          >
+            {item.title}
+          </span>
           {item.qtyText ? (
-            <span className="block text-xs text-gray-500">{item.qtyText}</span>
+            <span
+              className={bought ? "block text-xs text-gray-400" : "block text-xs text-gray-500"}
+            >
+              {item.qtyText}
+            </span>
           ) : null}
         </span>
         <span
           aria-label={`${item.title}: ${item.daysInList} days in list`}
-          className="shrink-0 self-center rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500"
+          className={
+            bought
+              ? "shrink-0 self-center rounded-full bg-gray-50 px-2 py-1 text-xs text-gray-400"
+              : "shrink-0 self-center rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500"
+          }
         >
           {item.daysInList}d
         </span>

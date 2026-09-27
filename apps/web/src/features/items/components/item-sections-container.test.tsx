@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../../stores/auth-store";
 import { createApiFetchMock, json } from "../../../test/mock-api";
+import { useItems } from "../../lists/hooks/use-items";
 import { useReorderItems } from "../hooks/use-item-mutations";
 import { reorderedIdsAfterDrag } from "./item-sections";
 import { ItemSectionsContainer } from "./item-sections-container";
@@ -254,6 +255,129 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
 
     expect(await screen.findByText("details-page")).toBeInTheDocument();
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
+  });
+});
+
+describe("ItemRow bought styling (docs/TASKS.md → T36)", () => {
+  afterEach(() => {
+    useAuthStore.setState({ accessToken: null, user: null });
+    vi.unstubAllGlobals();
+  });
+
+  it("fades a BOUGHT row: strikethrough muted title, muted qty/badge, desaturated bar, dimmed row", () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    createApiFetchMock().stub();
+    const boughtWithQty: Item = { ...BOUGHT[0]!, qtyText: "500g" };
+    renderContainer(TO_BUY, [boughtWithQty]);
+
+    const title = screen.getByText("Butter");
+    expect(title).toHaveClass("line-through", "text-gray-400");
+    expect(title).not.toHaveClass("text-gray-900");
+    expect(screen.getByText("500g")).toHaveClass("text-gray-400");
+    expect(screen.getByLabelText("Butter: 3 days in list")).toHaveClass("text-gray-400");
+    const row = screen.getByTestId("item-row-i3");
+    expect(row.querySelector("span[aria-hidden='true']")).toHaveClass("grayscale", "opacity-50");
+    expect(row).toHaveStyle({ opacity: "0.7" });
+  });
+
+  it("keeps a TO_BUY row in the normal style (no strikethrough, full color, full opacity)", () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    createApiFetchMock().stub();
+    renderContainer();
+
+    const title = screen.getByText("Milk");
+    expect(title).toHaveClass("text-gray-900");
+    expect(title).not.toHaveClass("line-through");
+    expect(screen.getByText("2x")).toHaveClass("text-gray-500");
+    const row = screen.getByTestId("item-row-i1");
+    expect(row.querySelector("span[aria-hidden='true']")).not.toHaveClass("grayscale");
+    expect(row).not.toHaveStyle({ opacity: "0.7" });
+  });
+
+  it("applies the bought style immediately on tap via the optimistic update, and restores it on un-buy (DoD)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+
+    // Deferred move POSTs: the response is held back so assertions can prove
+    // the style flipped from the optimistic cache write alone.
+    let serverItems: { items: Item[] } = { items: [...TO_BUY, ...BOUGHT] };
+    const moveBodies: unknown[] = [];
+    const resolvers: Array<(response: Response) => void> = [];
+    let getCalls = 0;
+    const fakeResponse = (status: number, body?: unknown): Response =>
+      ({
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: "OK",
+        headers: new Headers(),
+        json: async () => body,
+      }) as Response;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(String(input), "http://localhost");
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET" && url.pathname === "/api/lists/l1/items") {
+          getCalls += 1;
+          return fakeResponse(200, serverItems);
+        }
+        if (method === "POST" && url.pathname === "/api/items/i1/move") {
+          moveBodies.push(JSON.parse(String(init?.body)));
+          return new Promise((resolve) => resolvers.push(resolve));
+        }
+        throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+      }),
+    );
+
+    // Same wiring as lists-page: items from the ["items", listId] cache.
+    function MoveHarness() {
+      const items = useItems("l1");
+      const all = items.data?.items ?? [];
+      return (
+        <ItemSectionsContainer
+          listId="l1"
+          toBuy={all.filter((entry) => entry.status === "TO_BUY")}
+          bought={all.filter((entry) => entry.status === "BOUGHT")}
+        />
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<MoveHarness />} />
+            <Route path="/items/:itemId" element={<p>details-page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("item-row-i1");
+
+    // Buy: the row fades immediately, while the move POST is still pending.
+    fireEvent.click(rowBody("i1"));
+    await waitFor(() => expect(screen.getByText("Milk")).toHaveClass("line-through"));
+    expect(rowBody("i1")).toHaveAttribute("aria-label", "Move Milk back to to buy");
+    expect(moveBodies[0]).toEqual({ status: "bought" });
+    expect(resolvers).toHaveLength(1);
+
+    // The server confirms; the refetched cache keeps the faded look.
+    serverItems = {
+      items: [TO_BUY[1]!, { ...TO_BUY[0]!, status: "BOUGHT" }, BOUGHT[0]!],
+    };
+    resolvers[0]!(fakeResponse(200, { ...TO_BUY[0]!, status: "BOUGHT" }));
+    await waitFor(() => expect(getCalls).toBe(2));
+    expect(screen.getByText("Milk")).toHaveClass("line-through");
+
+    // Un-buy: the normal look returns immediately (optimistic), then persists.
+    fireEvent.click(rowBody("i1"));
+    await waitFor(() => expect(screen.getByText("Milk")).not.toHaveClass("line-through"));
+    expect(screen.getByText("Milk")).toHaveClass("text-gray-900");
+    expect(moveBodies[1]).toEqual({ status: "to_buy" });
+    serverItems = { items: [...TO_BUY, ...BOUGHT] };
+    resolvers[1]!(fakeResponse(200, TO_BUY[0]!));
+    await waitFor(() => expect(getCalls).toBe(3));
+    expect(screen.getByText("Milk")).toHaveClass("text-gray-900");
+    expect(screen.getByText("Milk")).not.toHaveClass("line-through");
   });
 });
 

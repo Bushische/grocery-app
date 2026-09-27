@@ -27,15 +27,19 @@ function applyMove(
   itemId: string,
   target: "TO_BUY" | "BOUGHT",
 ): ItemsQueryData {
-  const { toBuy, bought } = splitSections(data);
-  const moving = [...toBuy, ...bought].find((item) => item.id === itemId);
+  const moving = data.items.find((item) => item.id === itemId);
   if (!moving) return data;
   const moved: Item = { ...moving, status: target };
-  const without = [...toBuy, ...bought].filter((item) => item.id !== itemId);
-  const others = without.filter((item) => item.status === target);
-  const updated = [...others, moved];
+  const without = data.items.filter((item) => item.id !== itemId);
+  const targetSection = without.filter((item) => item.status === target);
+  const otherSection = without.filter((item) => item.status !== target);
   return {
-    items: [...(target === "TO_BUY" ? [...updated, ...bought] : [...toBuy, ...updated])],
+    // The moved item is appended to the end of its target section; the source
+    // section keeps its remaining rows in order (T36: no duplicated row).
+    items:
+      target === "TO_BUY"
+        ? [...targetSection, moved, ...otherSection]
+        : [...otherSection, ...targetSection, moved],
   };
 }
 
