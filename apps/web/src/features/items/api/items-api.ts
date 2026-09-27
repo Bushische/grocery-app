@@ -1,8 +1,13 @@
 import {
   type Item,
+  type SmartAddResponse,
+  type SuggestResponse,
   itemSchema,
   moveItemRequestSchema,
   reorderRequestSchema,
+  smartAddRequestSchema,
+  smartAddResponseSchema,
+  suggestResponseSchema,
 } from "@grocery/shared";
 import { api } from "../../../lib/api";
 
@@ -16,5 +21,19 @@ export const itemsApi = {
     api.postVoid(
       `/lists/${listId}/items/reorder`,
       reorderRequestSchema.parse({ status, orderedIds }),
+    ),
+  /** GET /items/suggest?q=&listId= — grouped suggestions for the bottom input box. */
+  suggest: (listId: string, q: string, signal?: AbortSignal): Promise<SuggestResponse> =>
+    api.get(
+      `/items/suggest?q=${encodeURIComponent(q)}&listId=${encodeURIComponent(listId)}`,
+      suggestResponseSchema,
+      signal,
+    ),
+  /** POST /lists/:id/items/smart-add — matches (BOUGHT → re-activated) or creates in "Other". */
+  smartAdd: (listId: string, text: string): Promise<SmartAddResponse> =>
+    api.post(
+      `/lists/${listId}/items/smart-add`,
+      smartAddRequestSchema.parse({ text }),
+      smartAddResponseSchema,
     ),
 };

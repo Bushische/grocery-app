@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLogout } from "../../auth/hooks/use-logout";
 import { useSession } from "../../auth/hooks/use-session";
+import { AddItemInput } from "../../items/components/add-item-input";
 import { ItemSectionsContainer } from "../../items/components/item-sections-container";
 import { CreateListForm } from "../components/create-list-form";
 import { DeleteListButton } from "../components/delete-list-button";
@@ -47,7 +48,7 @@ export function ListsPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-md px-4 py-4">
+      <main className="mx-auto max-w-md px-4 pb-40 pt-4">
         {lists.status === "pending" ? (
           <output className="block text-sm text-gray-500">Loading lists…</output>
         ) : lists.status === "error" ? (
@@ -126,6 +127,18 @@ export function ListsPage() {
           </>
         )}
       </main>
+
+      {selectedList ? (
+        <div
+          data-testid="add-item-bar"
+          className="fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white px-4 py-3"
+        >
+          <div className="mx-auto max-w-md">
+            {/* Keyed by list: switching lists resets the input and its suggestions. */}
+            <AddItemInput key={selectedList.id} listId={selectedList.id} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
