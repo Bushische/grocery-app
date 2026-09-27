@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { API_BASE_PATH, loginRequestSchema, loginResponseSchema } from "./index";
+import {
+  API_BASE_PATH,
+  addListMemberRequestSchema,
+  createListRequestSchema,
+  listRoleSchema,
+  listSummarySchema,
+  loginRequestSchema,
+  loginResponseSchema,
+} from "./index";
 
 describe("shared package", () => {
   it("exports the API base path", () => {
@@ -32,6 +40,45 @@ describe("loginResponseSchema", () => {
         accessToken: "x",
         user: { id: "u1", email: "a@b.co", role: "superuser" },
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe("list schemas", () => {
+  it("createListRequestSchema trims the title and rejects empty or whitespace-only titles", () => {
+    expect(createListRequestSchema.parse({ title: "  Weekly " })).toEqual({ title: "Weekly" });
+    expect(createListRequestSchema.safeParse({ title: "" }).success).toBe(false);
+    expect(createListRequestSchema.safeParse({ title: "   " }).success).toBe(false);
+    expect(createListRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("listRoleSchema accepts only OWNER, EDITOR, VIEWER", () => {
+    expect(listRoleSchema.parse("OWNER")).toBe("OWNER");
+    expect(listRoleSchema.parse("EDITOR")).toBe("EDITOR");
+    expect(listRoleSchema.parse("VIEWER")).toBe("VIEWER");
+    expect(listRoleSchema.safeParse("ADMIN").success).toBe(false);
+    expect(listRoleSchema.safeParse("owner").success).toBe(false);
+  });
+
+  it("addListMemberRequestSchema normalizes the email and validates the role", () => {
+    expect(
+      addListMemberRequestSchema.parse({ email: " Mom@Example.COM ", role: "EDITOR" }),
+    ).toEqual({ email: "mom@example.com", role: "EDITOR" });
+    expect(addListMemberRequestSchema.safeParse({ email: "nope", role: "EDITOR" }).success).toBe(
+      false,
+    );
+    expect(addListMemberRequestSchema.safeParse({ email: "a@b.co", role: "GOD" }).success).toBe(
+      false,
+    );
+  });
+
+  it("listSummarySchema requires id, title, role, and itemCounts", () => {
+    const value = { id: "l1", title: "Weekly", role: "OWNER", itemCounts: { toBuy: 5, bought: 2 } };
+    expect(listSummarySchema.parse(value)).toEqual(value);
+    expect(listSummarySchema.safeParse({ ...value, itemCounts: { toBuy: 1 } }).success).toBe(false);
+    expect(listSummarySchema.safeParse({ ...value, role: "GOD" }).success).toBe(false);
+    expect(
+      listSummarySchema.safeParse({ ...value, itemCounts: { toBuy: -1, bought: 0 } }).success,
     ).toBe(false);
   });
 });

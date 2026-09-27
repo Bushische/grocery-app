@@ -13,6 +13,7 @@ import { registerDb } from "./plugins/db";
 import { applyErrorHandling } from "./plugins/error-handler";
 import { authRoutes } from "./routes/auth";
 import { healthRoutes } from "./routes/health";
+import { listRoutes } from "./routes/lists";
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 
@@ -53,6 +54,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   registerAuth(app, config.jwtSecret);
   app.register(healthRoutes);
   app.register(authRoutes);
+  app.register(listRoutes);
 
   return app;
 }
