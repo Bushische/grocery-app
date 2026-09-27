@@ -10,7 +10,11 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(1).default(DEV_JWT_SECRET),
   DATABASE_PATH: z.string().min(1).default("data/grocery.db"),
   UPLOADS_PATH: z.string().min(1).default("data/images"),
-  CORS_ORIGIN: z.string().min(1).optional(),
+  CORS_ORIGIN: z
+    .string()
+    .transform((value) => value.trim())
+    .transform((value) => (value.length === 0 ? undefined : value))
+    .optional(),
 });
 
 export type LogLevel = z.infer<typeof envSchema>["LOG_LEVEL"];
