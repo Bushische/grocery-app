@@ -1,6 +1,8 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
+import { pwaPluginOptions } from "./src/lib/pwa-config";
 
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), "") };
@@ -13,7 +15,7 @@ export default defineConfig(({ mode }) => {
       : "http://localhost:3000");
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), VitePWA(pwaPluginOptions)],
     server: {
       proxy: {
         // The Fastify app serves routes at the root (no /api prefix), so the
