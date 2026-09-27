@@ -44,6 +44,9 @@ export function createApiFetchMock() {
         } catch {
           body = init.body;
         }
+      } else if (init?.body !== undefined) {
+        // FormData / Blob bodies are recorded as-is (multipart uploads).
+        body = init.body;
       }
       calls.push({ method, path: url.pathname, body, headers });
       const handler = routes.get(`${method} ${url.pathname}`);

@@ -1,4 +1,9 @@
-import { type AuthUser, type ListSummary, listSummarySchema } from "@grocery/shared";
+import {
+  type AuthUser,
+  type ListSummary,
+  itemImageResponseSchema,
+  listSummarySchema,
+} from "@grocery/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { api } from "./lib/api";
 import { ApiClientError } from "./lib/api-client";
@@ -90,6 +95,27 @@ describe("api client transport", () => {
       .catch((caught: unknown) => caught);
 
     expect((error as ApiClientError).code).toBe("HTTP_502");
+  });
+
+  it("uploads FormData as multipart without setting a content-type header", async () => {
+    const mock = createApiFetchMock();
+    mock.stub();
+    mock.on("POST", "/api/items/i1/image", () => json(200, { imageFilename: "i1-abc.webp" }));
+    useAuthStore.setState({ accessToken: "token-1", user: USER });
+
+    const formData = new FormData();
+    const blob = new Blob(["webp-bytes"], { type: "image/webp" });
+    formData.append("image", blob, "photo.webp");
+
+    const result = await api.upload("/items/i1/image", formData, itemImageResponseSchema);
+
+    expect(result.imageFilename).toBe("i1-abc.webp");
+    const call = mock.callsTo("POST", "/api/items/i1/image")[0];
+    expect(call?.body).toBeInstanceOf(FormData);
+    const sent = call?.body as FormData;
+    expect(sent.get("image")).toBeInstanceOf(Blob);
+    expect(call?.headers.get("content-type")).toBeNull();
+    expect(call?.headers.get("authorization")).toBe("Bearer token-1");
   });
 });
 

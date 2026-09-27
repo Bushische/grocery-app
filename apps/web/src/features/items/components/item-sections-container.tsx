@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { ItemSections } from "../components/item-sections";
 import { useMoveItem, useReorderItems } from "../hooks/use-item-mutations";
 
+/** The list context the details page needs for its category select (T18). */
+export interface DetailsNavigationState {
+  listId?: string;
+}
+
 export interface ItemSectionsContainerProps {
   listId: string;
   toBuy: Item[];
@@ -26,7 +31,9 @@ export function ItemSectionsContainer({ listId, toBuy, bought }: ItemSectionsCon
       movePending={move.isPending}
       onReorder={(orderedIds) => reorder.mutate(orderedIds)}
       onMove={(itemId, status) => move.mutate({ itemId, status })}
-      onOpenDetails={(itemId) => void navigate(`/items/${itemId}`)}
+      onOpenDetails={(itemId) =>
+        void navigate(`/items/${itemId}`, { state: { listId } satisfies DetailsNavigationState })
+      }
     />
   );
 }

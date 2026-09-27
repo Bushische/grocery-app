@@ -299,6 +299,14 @@ export const MAX_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024;
 /** Longest edge of the server-side-resized webp (docs/TASKS.md → T10: 600 px). */
 export const MAX_IMAGE_DIMENSION = 600;
 
+/** Longest edge the browser downscales a photo to before uploading
+ * (`createImageBitmap` + canvas, docs/TASKS.md → T18: 1200 px) — server-side
+ * `sharp` (T10) stays the safety net, not the only resize. */
+export const MAX_IMAGE_UPLOAD_LONG_EDGE = 1200;
+
+/** WebP quality of the client-side canvas downscale (docs/TASKS.md → T18: q≈0.8). */
+export const IMAGE_UPLOAD_WEBP_QUALITY = 0.8;
+
 /** Response of `POST /items/:id/image` — the content-addressed filename under /static. */
 export const itemImageResponseSchema = z.object({ imageFilename: z.string().min(1) });
 export type ItemImageResponse = z.infer<typeof itemImageResponseSchema>;

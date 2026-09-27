@@ -1,12 +1,14 @@
 import {
+  type Category,
   type ListSummary,
+  categorySchema,
   createListRequestSchema,
   itemsResponseSchema,
   listSummarySchema,
 } from "@grocery/shared";
 import { api } from "../../../lib/api";
 
-/** Lists + per-list items (docs/API.md → Lists, Items). */
+/** Lists + per-list items/categories (docs/API.md → Lists, Items, Categories). */
 export const listsApi = {
   /** GET /lists — the signed-in user's lists with role and item counts. */
   list: (signal?: AbortSignal) => api.get("/lists", listSummarySchema.array(), signal),
@@ -18,4 +20,7 @@ export const listsApi = {
   /** GET /lists/:id/items — all statuses, ordered by sortOrder then addedAt. */
   items: (listId: string, signal?: AbortSignal) =>
     api.get(`/lists/${listId}/items`, itemsResponseSchema, signal),
+  /** GET /lists/:id/categories — color/title per category, ordered by sortOrder. */
+  categories: (listId: string, signal?: AbortSignal): Promise<Category[]> =>
+    api.get(`/lists/${listId}/categories`, categorySchema.array(), signal),
 };

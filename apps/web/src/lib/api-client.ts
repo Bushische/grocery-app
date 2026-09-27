@@ -95,14 +95,16 @@ export function createApiClient(adapter: AuthAdapter) {
   ): Promise<T> {
     const { method = "GET", body, signal, schema } = options;
     const headers = new Headers({ accept: "application/json" });
-    if (body !== undefined) headers.set("content-type", "application/json");
+    // FormData carries its own content-type (multipart boundary) — never set it here.
+    const isFormData = body instanceof FormData;
+    if (body !== undefined && !isFormData) headers.set("content-type", "application/json");
     const accessToken = adapter.getAccessToken();
     if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
 
     const response = await fetch(`${API_BASE_PATH}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
       signal,
       credentials: "same-origin",
     });
@@ -141,6 +143,15 @@ export function createApiClient(adapter: AuthAdapter) {
     },
     post<T>(path: string, body: unknown, schema: ZodType<T>, signal?: AbortSignal): Promise<T> {
       return request<T>(path, { method: "POST", body, schema, signal });
+    },
+    /** Multipart POST (e.g. item images) — body is sent as-is, no JSON encoding. */
+    upload<T>(
+      path: string,
+      formData: FormData,
+      schema: ZodType<T>,
+      signal?: AbortSignal,
+    ): Promise<T> {
+      return request<T>(path, { method: "POST", body: formData, schema, signal });
     },
     postVoid(path: string, body?: unknown, signal?: AbortSignal): Promise<void> {
       return request<void>(path, { method: "POST", body, signal });

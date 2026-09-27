@@ -1,18 +1,48 @@
 import {
   type Item,
+  type ItemDetail,
+  type PriceObservation,
   type SmartAddResponse,
   type SuggestResponse,
+  type UpdateItemRequest,
+  createPriceObservationRequestSchema,
+  itemDetailSchema,
+  itemImageResponseSchema,
   itemSchema,
   moveItemRequestSchema,
+  priceObservationSchema,
   reorderRequestSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
   suggestResponseSchema,
+  updateItemRequestSchema,
 } from "@grocery/shared";
 import { api } from "../../../lib/api";
 
-/** Item mutations for the main screen (docs/API.md → Items: move, reorder). */
+/** Item reads + mutations (docs/API.md → Items, Prices). */
 export const itemsApi = {
+  /** GET /items/:id — the item plus its price history, newest first. */
+  detail: (itemId: string, signal?: AbortSignal): Promise<ItemDetail> =>
+    api.get(`/items/${itemId}`, itemDetailSchema, signal),
+  /** PATCH /items/:id — partial edit; `qtyText: null` clears the quantity. */
+  update: (itemId: string, patch: UpdateItemRequest): Promise<Item> =>
+    api.patch(`/items/${itemId}`, updateItemRequestSchema.parse(patch), itemSchema),
+  /** POST /items/:id/image — multipart, form field "image" (docs/API.md → Items). */
+  uploadImage: (itemId: string, image: Blob, filename: string) => {
+    const formData = new FormData();
+    formData.append("image", image, filename);
+    return api.upload(`/items/${itemId}/image`, formData, itemImageResponseSchema);
+  },
+  /** POST /items/:id/prices → 201 observation. */
+  addPrice: (
+    itemId: string,
+    observation: { price: number; shop: string },
+  ): Promise<PriceObservation> =>
+    api.post(
+      `/items/${itemId}/prices`,
+      createPriceObservationRequestSchema.parse(observation),
+      priceObservationSchema,
+    ),
   /** POST /items/:id/move — buy/unbuy toggle. */
   move: (itemId: string, status: "bought" | "to_buy"): Promise<Item> =>
     api.post(`/items/${itemId}/move`, moveItemRequestSchema.parse({ status }), itemSchema),
