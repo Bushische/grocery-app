@@ -1,5 +1,6 @@
 import type { SuggestGroup } from "@grocery/shared";
 import { useState } from "react";
+import { useCreateItem } from "../hooks/use-create-item";
 import { useSmartAdd } from "../hooks/use-smart-add";
 import { useSuggest } from "../hooks/use-suggestions";
 
@@ -15,6 +16,14 @@ export interface AddItemInputProps {
  * runs smart-add — matching an existing item re-activates it when bought,
  * unknown text creates an item in "Other" (docs/API.md → Items).
  *
+ * The distinct "Create …" row (docs/TASKS.md → T26) bypasses smart-add: it uses
+ * plain POST /lists/:id/items, which never matches — so "melon" can be created
+ * next to an existing "watermelon" (a smart-add of "melon" would fuzzy-match it,
+ * Dice("melon","watermelon") ≥ 0.6) and same-named items can be added twice.
+ * The row is visible whenever the input has text — including on exact matches,
+ * where picking the suggestion / Enter re-activates instead (the user opts into
+ * a duplicate explicitly).
+ *
  * No virtualization: the suggest endpoint caps results at 20 (docs/API.md),
  * far below the > 200-results threshold at which a virtual list would pay off.
  */
@@ -23,6 +32,7 @@ export function AddItemInput({ listId }: AddItemInputProps) {
   const [error, setError] = useState<string | null>(null);
   const suggestions = useSuggest(listId, text);
   const smartAdd = useSmartAdd(listId);
+  const createItem = useCreateItem(listId);
 
   const trimmed = text.trim();
 
@@ -32,6 +42,20 @@ export function AddItemInput({ listId }: AddItemInputProps) {
     if (!clean || smartAdd.isPending) return;
     setError(null);
     smartAdd.mutate(clean, {
+      onSuccess: () => {
+        setText("");
+        setError(null);
+      },
+      onError: () => setError(GENERIC_ADD_ERROR),
+    });
+  }
+
+  /** Explicit create (T26): plain item creation, never a match. */
+  function create(value: string) {
+    const clean = value.trim();
+    if (!clean || createItem.isPending) return;
+    setError(null);
+    createItem.mutate(clean, {
       onSuccess: () => {
         setText("");
         setError(null);
@@ -72,6 +96,22 @@ export function AddItemInput({ listId }: AddItemInputProps) {
         <p role="alert" className="mt-1 text-xs text-red-600">
           {error}
         </p>
+      ) : null}
+      {trimmed ? (
+        <button
+          type="button"
+          data-testid="create-item-row"
+          onClick={() => create(trimmed)}
+          className="mt-1 flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left text-sm font-medium text-green-700 hover:bg-green-50"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-base"
+          >
+            +
+          </span>
+          <span className="truncate">Create "{trimmed}"</span>
+        </button>
       ) : null}
       {visible.length > 0 ? (
         <ul aria-label="Suggestions" className="mt-1">

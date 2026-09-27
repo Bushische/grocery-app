@@ -1,10 +1,12 @@
 import {
+  type CreateItemRequest,
   type Item,
   type ItemDetail,
   type PriceObservation,
   type SmartAddResponse,
   type SuggestResponse,
   type UpdateItemRequest,
+  createItemRequestSchema,
   createPriceObservationRequestSchema,
   itemDetailSchema,
   itemImageResponseSchema,
@@ -52,6 +54,11 @@ export const itemsApi = {
       `/lists/${listId}/items/reorder`,
       reorderRequestSchema.parse({ status, orderedIds }),
     ),
+  /** POST /lists/:id/items — plain create; never matches existing items, so it
+   * always yields a separate row (duplicates included). Without `categoryId`
+   * the server files the item under the list's default "Other" category. */
+  create: (listId: string, request: CreateItemRequest): Promise<Item> =>
+    api.post(`/lists/${listId}/items`, createItemRequestSchema.parse(request), itemSchema),
   /** GET /items/suggest?q=&listId= — grouped suggestions for the bottom input box. */
   suggest: (listId: string, q: string, signal?: AbortSignal): Promise<SuggestResponse> =>
     api.get(

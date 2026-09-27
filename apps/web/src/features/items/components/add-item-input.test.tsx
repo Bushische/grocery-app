@@ -235,3 +235,167 @@ describe("AddItemInput (docs/TASKS.md → T17)", () => {
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
   });
 });
+
+describe("AddItemInput explicit create (docs/TASKS.md → T26)", () => {
+  /** The server suggests "Watermelon" for "melon" (substring both ways) — exactly the
+   * bug report's setup: suggestions exist, but they must not be the only way forward. */
+  const WATERMELON_GROUP = {
+    groups: [
+      {
+        category: OTHER,
+        items: [{ id: "i10", title: "Watermelon", qtyText: null, status: "TO_BUY" }],
+      },
+    ],
+  };
+
+  it("'melon' next to existing 'watermelon': the Create row makes a separate item via plain POST (DoD)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, WATERMELON_GROUP));
+    mock.on("POST", "/api/lists/l1/items", () =>
+      json(201, item({ id: "i11", title: "melon", status: "TO_BUY", category: OTHER })),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    await user.type(screen.getByLabelText("Add item"), "melon");
+    expect(await screen.findByTestId("suggestion-i10")).toHaveTextContent("Watermelon");
+    const createRow = screen.getByTestId("create-item-row");
+    expect(createRow).toHaveTextContent('Create "melon"');
+
+    await user.click(createRow);
+
+    // Plain create — smart-add would fuzzy-match "watermelon" (Dice ≥ 0.6) instead.
+    expect(mock.callsTo("POST", "/api/lists/l1/items/smart-add")).toHaveLength(0);
+    await waitFor(() => expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(1));
+    expect(mock.callsTo("POST", "/api/lists/l1/items")[0]?.body).toEqual({ title: "melon" });
+    await waitFor(() => expect(screen.getByLabelText("Add item")).toHaveValue(""));
+    expect(screen.queryByTestId("create-item-row")).not.toBeInTheDocument();
+  });
+
+  it("re-adding an exact title still re-activates via smart-add on submit (DoD)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () =>
+      json(200, {
+        groups: [
+          {
+            category: OTHER,
+            items: [{ id: "i10", title: "Watermelon", qtyText: null, status: "BOUGHT" }],
+          },
+        ],
+      }),
+    );
+    mock.on("POST", "/api/lists/l1/items/smart-add", () =>
+      json(200, {
+        created: false,
+        matchedBy: "exact",
+        item: item({ id: "i10", title: "Watermelon", status: "TO_BUY", category: OTHER }),
+      }),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    await user.type(screen.getByLabelText("Add item"), "Watermelon");
+    await screen.findByTestId("suggestion-i10");
+    // Enter path of the form (jsdom has no implicit Enter submission).
+    fireEvent.submit(screen.getByLabelText("Add item").closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(mock.callsTo("POST", "/api/lists/l1/items/smart-add")).toHaveLength(1),
+    );
+    expect(mock.callsTo("POST", "/api/lists/l1/items/smart-add")[0]?.body).toEqual({
+      text: "Watermelon",
+    });
+    // Enter keeps the smart-add semantics — it must not duplicate the item.
+    expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(0);
+    await waitFor(() => expect(screen.getByLabelText("Add item")).toHaveValue(""));
+  });
+
+  it("duplicate creation works: the same name can be created twice (DoD)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, { groups: [] }));
+    mock.on("POST", "/api/lists/l1/items", () =>
+      json(201, item({ id: "i11", title: "Watermelon", status: "TO_BUY", category: OTHER })),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    const input = screen.getByLabelText("Add item");
+    await user.type(input, "Watermelon");
+    await user.click(screen.getByTestId("create-item-row"));
+    await waitFor(() => expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(1));
+
+    // The first "Watermelon" now exists (an exact suggestion) — the Create row must
+    // stay available so the second, separate item can still be added.
+    await user.type(input, "Watermelon");
+    await user.click(screen.getByTestId("create-item-row"));
+
+    await waitFor(() => expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(2));
+    for (const call of mock.callsTo("POST", "/api/lists/l1/items")) {
+      expect(call.body).toEqual({ title: "Watermelon" });
+    }
+  });
+
+  it("keeps the Create row hidden while the input is blank", async () => {
+    const mock = createApiFetchMock();
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    expect(screen.queryByTestId("create-item-row")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Add item"), "   ");
+    await new Promise((resolve) => setTimeout(resolve, SUGGEST_DEBOUNCE_MS + 100));
+
+    expect(screen.queryByTestId("create-item-row")).not.toBeInTheDocument();
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it("shows an error and keeps the text when the explicit create fails", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, { groups: [] }));
+    mock.on("POST", "/api/lists/l1/items", () =>
+      json(403, { error: { code: "FORBIDDEN", message: "viewer" } }),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    await user.type(screen.getByLabelText("Add item"), "melon");
+    await user.click(screen.getByTestId("create-item-row"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not add the item.");
+    expect(screen.getByLabelText("Add item")).toHaveValue("melon");
+    // The row stays reachable so the user can retry.
+    expect(screen.getByTestId("create-item-row")).toBeInTheDocument();
+  });
+
+  it("creating from the main screen refreshes the list's items and counts", async () => {
+    const mock = createApiFetchMock();
+    mock.on("POST", "/api/auth/refresh", () => json(200, { accessToken: "token-1", user: USER }));
+    mock.on("GET", "/api/lists", () => json(200, LISTS));
+    mock.on("GET", "/api/lists/l1/items", () =>
+      json(200, {
+        items: [item({ id: "i10", title: "Watermelon", status: "TO_BUY", category: OTHER })],
+      }),
+    );
+    mock.on("GET", "/api/items/suggest", () => json(200, WATERMELON_GROUP));
+    mock.on("POST", "/api/lists/l1/items", () =>
+      json(201, item({ id: "i11", title: "melon", status: "TO_BUY", category: OTHER })),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByTestId("add-item-bar");
+
+    await user.type(screen.getByLabelText("Add item"), "melon");
+    await user.click(await screen.findByTestId("create-item-row"));
+
+    await waitFor(() => expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(1));
+    // The invalidation refreshes both the item list and the list counts.
+    await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
+    await waitFor(() => expect(mock.callsTo("GET", "/api/lists")).toHaveLength(2));
+  });
+});
