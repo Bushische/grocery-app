@@ -98,3 +98,68 @@ export type AddListMemberRequest = z.infer<typeof addListMemberRequestSchema>;
 
 export const updateListMemberRequestSchema = z.object({ role: listRoleSchema });
 export type UpdateListMemberRequest = z.infer<typeof updateListMemberRequestSchema>;
+
+// --- Categories (docs/API.md → Categories; docs/PROJECT.md → Categories) ---
+
+/** ISO 8601 UTC timestamp string as returned by the API (docs/API.md → Conventions). */
+export const isoDateTimeSchema = z.iso.datetime();
+export type IsoDateTime = z.infer<typeof isoDateTimeSchema>;
+
+/** `#RRGGBB` hex color (docs/DATA_MODEL.md → categories.color). */
+export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+export type HexColor = z.infer<typeof hexColorSchema>;
+
+/** Element of `GET /lists/:id/categories`. */
+export const categorySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  color: hexColorSchema,
+  sortOrder: z.number().int().min(0),
+  itemCount: z.number().int().min(0),
+});
+export type Category = z.infer<typeof categorySchema>;
+
+export const createCategoryRequestSchema = z.object({
+  title: titleSchema,
+  color: hexColorSchema,
+});
+export type CreateCategoryRequest = z.infer<typeof createCategoryRequestSchema>;
+
+/** Empty object allowed — `PATCH /categories/:id` with no fields is a no-op. */
+export const updateCategoryRequestSchema = z.object({
+  title: titleSchema.optional(),
+  color: hexColorSchema.optional(),
+});
+export type UpdateCategoryRequest = z.infer<typeof updateCategoryRequestSchema>;
+
+// --- Items (docs/API.md → Items) ---
+// Built incrementally: T7 exposes this DTO via `GET /categories/:id/items`,
+// T8 via `GET /lists/:id/items`; T11 adds `currentPrice` to item reads.
+
+export const itemStatusSchema = z.enum(["TO_BUY", "BOUGHT"]);
+
+/** Category reference embedded in item reads. */
+export const itemCategorySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  color: hexColorSchema,
+});
+export type ItemCategory = z.infer<typeof itemCategorySchema>;
+
+export const itemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  qtyText: z.string().nullable(),
+  status: itemStatusSchema,
+  sortOrder: z.number().int().min(0),
+  addedAt: isoDateTimeSchema,
+  /** Whole days since addedAt, computed at read time (docs/DATA_MODEL.md → Notes). */
+  daysInList: z.number().int().min(0),
+  category: itemCategorySchema,
+  imageFilename: z.string().nullable(),
+});
+export type Item = z.infer<typeof itemSchema>;
+
+/** Envelope of the item-collection endpoints (`GET /lists/:id/items`, `GET /categories/:id/items`). */
+export const itemsResponseSchema = z.object({ items: z.array(itemSchema) });
+export type ItemsResponse = z.infer<typeof itemsResponseSchema>;

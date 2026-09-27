@@ -12,6 +12,7 @@ import { registerAuth } from "./plugins/auth";
 import { registerDb } from "./plugins/db";
 import { applyErrorHandling } from "./plugins/error-handler";
 import { authRoutes } from "./routes/auth";
+import { categoryRoutes } from "./routes/categories";
 import { healthRoutes } from "./routes/health";
 import { listRoutes } from "./routes/lists";
 
@@ -55,6 +56,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(healthRoutes);
   app.register(authRoutes);
   app.register(listRoutes);
+  app.register(categoryRoutes);
 
   return app;
 }

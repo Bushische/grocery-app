@@ -1,15 +1,17 @@
 import type { ListRole } from "@grocery/shared";
+import { eq } from "drizzle-orm";
 import type { preHandlerHookHandler } from "fastify";
 import { z } from "zod";
+import { categories } from "../db/schema";
 import { FastifyHttpError } from "../errors";
 import { requireMembership, roleRank } from "../services/listService";
 
-/** All role-protected routes address the list as `:id` (…/members/:userId). */
-const listIdParamsSchema = z.object({ id: z.string().min(1) });
+/** Role-protected routes address either a list or a category as `:id`. */
+const idParamsSchema = z.object({ id: z.string().min(1) });
 
 declare module "fastify" {
   interface FastifyRequest {
-    /** Set by requireListRole — the caller's membership role for `:id`. */
+    /** Set by requireListRole/requireCategoryRole — the caller's role for the resolved list. */
     listRole?: ListRole;
   }
 }
@@ -22,8 +24,32 @@ declare module "fastify" {
  */
 export function requireListRole(minimum: ListRole): preHandlerHookHandler {
   return async (request, _reply) => {
-    const { id: listId } = listIdParamsSchema.parse(request.params);
+    const { id: listId } = idParamsSchema.parse(request.params);
     const role = requireMembership(request.server.db, listId, request.user.id);
+    if (roleRank(role) < roleRank(minimum)) {
+      throw new FastifyHttpError(403, "FORBIDDEN", `This action requires the ${minimum} role`);
+    }
+    request.listRole = role;
+  };
+}
+
+/**
+ * Same rules as requireListRole for routes addressing a *category* as `:id`
+ * (docs/API.md → Categories): resolves the owning list first — unknown
+ * category → 404, non-member or insufficient role → 403.
+ */
+export function requireCategoryRole(minimum: ListRole): preHandlerHookHandler {
+  return async (request, _reply) => {
+    const { id: categoryId } = idParamsSchema.parse(request.params);
+    const category = request.server.db
+      .select({ listId: categories.listId })
+      .from(categories)
+      .where(eq(categories.id, categoryId))
+      .get();
+    if (!category) {
+      throw new FastifyHttpError(404, "NOT_FOUND", `Category ${categoryId} not found`);
+    }
+    const role = requireMembership(request.server.db, category.listId, request.user.id);
     if (roleRank(role) < roleRank(minimum)) {
       throw new FastifyHttpError(403, "FORBIDDEN", `This action requires the ${minimum} role`);
     }
