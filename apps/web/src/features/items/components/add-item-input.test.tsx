@@ -1,7 +1,7 @@
-import type { Item } from "@grocery/shared";
+import type { Item, SuggestGroup } from "@grocery/shared";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -9,7 +9,7 @@ import { createApiFetchMock, json } from "../../../test/mock-api";
 import "../../../test/setup";
 import { ListsPage } from "../../lists/pages/lists-page";
 import { SUGGEST_DEBOUNCE_MS } from "../hooks/use-suggestions";
-import { AddItemInput } from "./add-item-input";
+import { AddItemInput, MAX_VISIBLE_SUGGESTIONS, capSuggestionGroups } from "./add-item-input";
 
 const DAIRY = { id: "c1", title: "Dairy", color: "#3B82F6" };
 const BAKERY = { id: "c2", title: "Bakery", color: "#F59E0B" };
@@ -397,5 +397,203 @@ describe("AddItemInput explicit create (docs/TASKS.md → T26)", () => {
     // The invalidation refreshes both the item list and the list counts.
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists")).toHaveLength(2));
+  });
+});
+
+describe("AddItemInput suggestions popover (docs/TASKS.md → T29)", () => {
+  const color = (id: string, title: string) => ({ id, title, color: "#3B82F6" });
+
+  describe("capSuggestionGroups (pure)", () => {
+    const groups: SuggestGroup[] = [
+      {
+        category: color("c1", "Dairy"),
+        items: [
+          { id: "i1", title: "Milk", qtyText: null, status: "TO_BUY" },
+          { id: "i2", title: "Buttermilk", qtyText: null, status: "TO_BUY" },
+        ],
+      },
+      {
+        category: color("c2", "Bakery"),
+        items: [
+          { id: "i3", title: "Roll", qtyText: null, status: "TO_BUY" },
+          { id: "i4", title: "Toast", qtyText: null, status: "TO_BUY" },
+        ],
+      },
+      { category: color("c3", "Empty"), items: [] },
+    ];
+
+    it("caps the flat item count across groups, cutting mid-group in server order", () => {
+      const capped = capSuggestionGroups(groups, 3);
+      expect(capped.map((group) => group.items.map((item) => item.id))).toEqual([
+        ["i1", "i2"],
+        ["i3"],
+      ]);
+    });
+
+    it("skips empty groups and passes an exact fit through", () => {
+      expect(capSuggestionGroups(groups, 2).map((group) => group.category.id)).toEqual(["c1"]);
+      expect(capSuggestionGroups(groups, 4).map((group) => group.items.length)).toEqual([2, 2]);
+      expect(capSuggestionGroups(groups, 0)).toEqual([]);
+    });
+
+    it("matches the exported cap", () => {
+      expect(MAX_VISIBLE_SUGGESTIONS).toBe(3);
+    });
+  });
+
+  /** Server payload with 5 matches across 2 categories — more than the popover may show. */
+  const FIVE_MATCHES = {
+    groups: [
+      {
+        category: DAIRY,
+        items: [
+          { id: "i1", title: "Milk", qtyText: null, status: "TO_BUY" },
+          { id: "i2", title: "Buttermilk", qtyText: null, status: "TO_BUY" },
+          { id: "i3", title: "Milkshake", qtyText: null, status: "TO_BUY" },
+        ],
+      },
+      {
+        category: BAKERY,
+        items: [
+          { id: "i4", title: "Milk roll", qtyText: null, status: "TO_BUY" },
+          { id: "i5", title: "Oat milk bun", qtyText: null, status: "TO_BUY" },
+        ],
+      },
+    ],
+  };
+
+  it("shows at most 3 suggestions in the floating layer above the input, which stays pinned (DoD)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, FIVE_MATCHES));
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    await user.type(screen.getByLabelText("Add item"), "mi");
+    const popover = await screen.findByTestId("suggestions-popover");
+    // The popover appears instantly on typing — wait for the debounced rows too.
+    await screen.findByTestId("suggestion-i3");
+
+    // Cap: only the first 3 rows exist, the rest are trimmed client-side.
+    expect(screen.getByTestId("suggestion-i1")).toBeInTheDocument();
+    expect(screen.getByTestId("suggestion-i2")).toBeInTheDocument();
+    expect(screen.getByTestId("suggestion-i3")).toBeInTheDocument();
+    expect(screen.queryByTestId("suggestion-i4")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("suggestion-i5")).not.toBeInTheDocument();
+    expect(within(popover).getAllByRole("button")).toHaveLength(3 + 1); // suggestions + Create row
+
+    // Floating layer: absolutely positioned, anchored above the input (out of
+    // the layout flow — jsdom has no layout, so the anchoring classes plus the
+    // input's placement outside the popover are the structural contract here).
+    expect(popover.className).toContain("absolute");
+    expect(popover.className).toContain("bottom-full");
+    expect(screen.getByTestId("add-item-box").className).toContain("relative");
+    expect(
+      popover.compareDocumentPosition(screen.getByLabelText("Add item")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy(); // popover rendered before the input
+    expect(popover.contains(screen.getByLabelText("Add item"))).toBe(false);
+    // The T26 Create row lives inside the same floating layer.
+    expect(popover).toContainElement(screen.getByTestId("create-item-row"));
+    // ≥ 40 px tap targets (min-h-11 = 44 px).
+    expect(screen.getByTestId("suggestion-i1").className).toContain("min-h-11");
+    expect(screen.getByTestId("create-item-row").className).toContain("min-h-11");
+  });
+
+  it("Escape closes the popover; typing again reopens it (DoD)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, FIVE_MATCHES));
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    const input = screen.getByLabelText("Add item");
+    await user.type(input, "mi");
+    await screen.findByTestId("suggestions-popover");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("suggestions-popover")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-item-row")).not.toBeInTheDocument();
+    expect(input).toHaveValue("mi");
+
+    // A new keystroke reopens the layer.
+    await user.type(input, "l");
+    expect(await screen.findByTestId("suggestions-popover")).toBeInTheDocument();
+  });
+
+  it("blur outside the box closes the popover (DoD: dismiss by tap)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, FIVE_MATCHES));
+    mock.stub();
+    const user = userEvent.setup();
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <div>
+          <AddItemInput listId="l1" />
+          <button type="button">Elsewhere</button>
+        </div>
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByLabelText("Add item"), "mi");
+    await screen.findByTestId("suggestions-popover");
+
+    await user.click(screen.getByRole("button", { name: "Elsewhere" }));
+    expect(screen.queryByTestId("suggestions-popover")).not.toBeInTheDocument();
+  });
+
+  it("selecting and creating by tap still work from the floating layer", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, FIVE_MATCHES));
+    mock.on("POST", "/api/lists/l1/items/smart-add", () =>
+      json(200, {
+        created: false,
+        matchedBy: "exact",
+        item: item({ id: "i1", title: "Milk", status: "TO_BUY", category: DAIRY }),
+      }),
+    );
+    mock.on("POST", "/api/lists/l1/items", () =>
+      json(201, item({ id: "i9", title: "mi thing", status: "TO_BUY", category: OTHER })),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    const input = screen.getByLabelText("Add item");
+    await user.type(input, "mi");
+    await screen.findByTestId("suggestions-popover");
+    await screen.findByTestId("suggestion-i1");
+
+    await user.click(screen.getByTestId("suggestion-i1"));
+    await waitFor(() =>
+      expect(mock.callsTo("POST", "/api/lists/l1/items/smart-add")).toHaveLength(1),
+    );
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.queryByTestId("suggestions-popover")).not.toBeInTheDocument();
+
+    await user.type(input, "mi thing");
+    await user.click(await screen.findByTestId("create-item-row"));
+    await waitFor(() => expect(mock.callsTo("POST", "/api/lists/l1/items")).toHaveLength(1));
+    expect(mock.callsTo("POST", "/api/lists/l1/items")[0]?.body).toEqual({ title: "mi thing" });
+  });
+
+  it("a failed create keeps the popover open so the action can be retried", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/suggest", () => json(200, { groups: [] }));
+    mock.on("POST", "/api/lists/l1/items", () =>
+      json(403, { error: { code: "FORBIDDEN", message: "viewer" } }),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderBox();
+    await user.type(screen.getByLabelText("Add item"), "melon");
+    await user.click(screen.getByTestId("create-item-row"));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByTestId("suggestions-popover")).toBeInTheDocument();
+    expect(screen.getByTestId("create-item-row")).toBeInTheDocument();
   });
 });

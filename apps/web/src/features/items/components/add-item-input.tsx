@@ -6,6 +6,28 @@ import { useSuggest } from "../hooks/use-suggestions";
 
 const GENERIC_ADD_ERROR = "Could not add the item. Please try again.";
 
+/** Max suggestion rows rendered in the popover (docs/TASKS.md → T29).
+ * The server may return more (up to 20, docs/API.md) — the client trims. */
+export const MAX_VISIBLE_SUGGESTIONS = 3;
+
+/**
+ * Trims the server's grouped result to at most `max` items total, walking the
+ * groups in server order (usageCount-first per docs/API.md → Suggest & Search)
+ * and cutting each group off mid-list once the cap is reached.
+ */
+export function capSuggestionGroups(groups: SuggestGroup[], max: number): SuggestGroup[] {
+  const capped: SuggestGroup[] = [];
+  let remaining = max;
+  for (const group of groups) {
+    if (remaining <= 0) break;
+    const items = group.items.slice(0, remaining);
+    if (items.length === 0) continue;
+    capped.push({ ...group, items });
+    remaining -= items.length;
+  }
+  return capped;
+}
+
 export interface AddItemInputProps {
   listId: string;
 }
@@ -20,16 +42,26 @@ export interface AddItemInputProps {
  * plain POST /lists/:id/items, which never matches — so "melon" can be created
  * next to an existing "watermelon" (a smart-add of "melon" would fuzzy-match it,
  * Dice("melon","watermelon") ≥ 0.6) and same-named items can be added twice.
- * The row is visible whenever the input has text — including on exact matches,
- * where picking the suggestion / Enter re-activates instead (the user opts into
- * a duplicate explicitly).
  *
- * No virtualization: the suggest endpoint caps results at 20 (docs/API.md),
- * far below the > 200-results threshold at which a virtual list would pay off.
+ * The suggestions + Create row live in a floating layer anchored above the
+ * input (docs/TASKS.md → T29): absolutely positioned, out of the layout flow —
+ * the input stays pinned to the bottom edge of the screen instead of being
+ * pushed up. The layer caps suggestions at MAX_VISIBLE_SUGGESTIONS, opens on
+ * typing, and closes on Escape, on blur that leaves the box, and after a
+ * successful add/create (the cleared text hides it either way); a failed
+ * add/create keeps it open so the action can be retried.
+ *
+ * Selection rows preventDefault on pointerdown: on browsers that do not focus
+ * buttons on tap (iOS Safari) this keeps focus on the input, so the popover
+ * never unmounts between the blur and the click and the tap always lands.
+ * A blur with the focus moving inside the box (relatedTarget) keeps it open.
+ *
+ * No virtualization: the popover shows at most MAX_VISIBLE_SUGGESTIONS rows.
  */
 export function AddItemInput({ listId }: AddItemInputProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const suggestions = useSuggest(listId, text);
   const smartAdd = useSmartAdd(listId);
   const createItem = useCreateItem(listId);
@@ -64,11 +96,60 @@ export function AddItemInput({ listId }: AddItemInputProps) {
     });
   }
 
-  const groups = trimmed && suggestions.data ? suggestions.data.groups : [];
-  const visible = groups.filter((group) => group.items.length > 0);
+  const groups =
+    trimmed && suggestions.data
+      ? suggestions.data.groups.filter((group) => group.items.length > 0)
+      : [];
+  const capped = capSuggestionGroups(groups, MAX_VISIBLE_SUGGESTIONS);
+  const popoverOpen = open && trimmed.length > 0;
 
   return (
-    <div data-testid="add-item-box">
+    <div
+      data-testid="add-item-box"
+      className="relative"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+      }}
+      onBlur={(event) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        ) {
+          setOpen(false);
+        }
+      }}
+    >
+      {popoverOpen ? (
+        <div
+          data-testid="suggestions-popover"
+          className="absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border border-gray-200 bg-white p-1 shadow-lg"
+        >
+          {trimmed ? (
+            <button
+              type="button"
+              data-testid="create-item-row"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => create(trimmed)}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left text-sm font-medium text-green-700 hover:bg-green-50"
+            >
+              <span
+                aria-hidden="true"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-base"
+              >
+                +
+              </span>
+              <span className="truncate">Create "{trimmed}"</span>
+            </button>
+          ) : null}
+          {capped.length > 0 ? (
+            <ul aria-label="Suggestions">
+              {capped.map((group) => (
+                <SuggestionGroup key={group.category.id} group={group} onSelect={add} />
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -79,7 +160,10 @@ export function AddItemInput({ listId }: AddItemInputProps) {
         <input
           aria-label="Add item"
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value);
+            setOpen(event.target.value.trim().length > 0);
+          }}
           placeholder="Add an item…"
           autoComplete="off"
           className="min-h-11 flex-1 rounded-lg border border-gray-300 bg-white px-3 text-base outline-none focus:border-blue-500"
@@ -96,29 +180,6 @@ export function AddItemInput({ listId }: AddItemInputProps) {
         <p role="alert" className="mt-1 text-xs text-red-600">
           {error}
         </p>
-      ) : null}
-      {trimmed ? (
-        <button
-          type="button"
-          data-testid="create-item-row"
-          onClick={() => create(trimmed)}
-          className="mt-1 flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left text-sm font-medium text-green-700 hover:bg-green-50"
-        >
-          <span
-            aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-base"
-          >
-            +
-          </span>
-          <span className="truncate">Create "{trimmed}"</span>
-        </button>
-      ) : null}
-      {visible.length > 0 ? (
-        <ul aria-label="Suggestions" className="mt-1">
-          {visible.map((group) => (
-            <SuggestionGroup key={group.category.id} group={group} onSelect={add} />
-          ))}
-        </ul>
       ) : null}
     </div>
   );
@@ -147,6 +208,7 @@ function SuggestionGroup({
             <button
               type="button"
               data-testid={`suggestion-${item.id}`}
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => onSelect(item.title)}
               className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left hover:bg-gray-100"
             >
