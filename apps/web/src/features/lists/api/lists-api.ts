@@ -5,6 +5,7 @@ import {
   createListRequestSchema,
   itemsResponseSchema,
   listSummarySchema,
+  updateListRequestSchema,
 } from "@grocery/shared";
 import { api } from "../../../lib/api";
 
@@ -15,6 +16,9 @@ export const listsApi = {
   /** POST /lists → 201 list (the summary shape, T6). */
   create: (title: string): Promise<ListSummary> =>
     api.post("/lists", createListRequestSchema.parse({ title }), listSummarySchema),
+  /** PATCH /lists/:id → 200 list (the summary shape, OWNER only, T6). */
+  update: (id: string, title: string): Promise<ListSummary> =>
+    api.patch(`/lists/${id}`, updateListRequestSchema.parse({ title }), listSummarySchema),
   /** DELETE /lists/:id → 204 (OWNER only, enforced server-side). */
   remove: (id: string) => api.del(`/lists/${id}`),
   /** GET /lists/:id/items — all statuses, ordered by sortOrder then addedAt. */

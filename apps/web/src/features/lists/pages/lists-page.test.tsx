@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type MockResponseSpec, createApiFetchMock, json } from "../../../test/mock-api";
 import { ListsPage } from "./lists-page";
 import "../../../test/setup";
@@ -400,5 +400,151 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     renderPage();
 
     expect(await screen.findByText("Could not load your lists.")).toBeInTheDocument();
+  });
+});
+
+describe("ListsPage (docs/TASKS.md → T40 rename list from the overlay menu)", () => {
+  function fakeResponse(status: number, body?: unknown): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => body,
+    } as Response;
+  }
+
+  it("OWNER renames from the menu: PATCH body trimmed, header + switcher row update instantly, no refetch (DoD)", async () => {
+    // Deferred PATCH: the response is held back so the optimistic title update
+    // (header line + menu switcher row) can be asserted while it is pending.
+    let getListsCalls = 0;
+    const patchBodies: unknown[] = [];
+    const resolvers: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(String(input), "http://localhost");
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "POST" && url.pathname === "/api/auth/refresh") {
+          return fakeResponse(200, { accessToken: "token-1", user: USER });
+        }
+        if (method === "GET" && url.pathname === "/api/lists") {
+          getListsCalls += 1;
+          return fakeResponse(200, LISTS);
+        }
+        if (method === "GET" && url.pathname === "/api/lists/l1/items") {
+          return fakeResponse(200, ITEMS_L1);
+        }
+        if (method === "PATCH" && url.pathname === "/api/lists/l1") {
+          patchBodies.push(JSON.parse(String(init?.body)));
+          return new Promise<Response>((resolve) => resolvers.push(resolve));
+        }
+        throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByTestId("item-row-i1");
+
+    await openMenu(user);
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    const input = screen.getByLabelText("New list title");
+    expect(input).toHaveValue("Weekly");
+    await user.clear(input);
+    await user.type(input, "  Week  ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBodies).toEqual([{ title: "Week" }]));
+    // Optimistic frame, PATCH still pending: header + switcher row already show it.
+    expect(screen.getByRole("heading", { name: "Week" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Week OWNER" })).toBeInTheDocument();
+    expect(resolvers).toHaveLength(1);
+
+    // Server confirm reconciles; the rename never triggers a lists refetch.
+    resolvers[0]!(
+      fakeResponse(200, {
+        id: "l1",
+        title: "Week",
+        role: "OWNER",
+        itemCounts: { toBuy: 2, bought: 1 },
+      }),
+    );
+    await waitFor(() => expect(screen.queryByTestId("rename-list-form")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Week OWNER" })).toBeInTheDocument();
+    expect(getListsCalls).toBe(1);
+
+    // The menu stays open so the renamed row is visible; closing shows the header.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("menu-overlay")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Week" })).toBeInTheDocument();
+  });
+
+  it("shows a banner and rolls the rename back when the PATCH fails (DoD)", async () => {
+    const mock = createApiFetchMock();
+    stubDefaultRoutes(mock);
+    mock.on("PATCH", "/api/lists/l1", () =>
+      json(500, { error: { code: "INTERNAL_ERROR", message: "boom" } }),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByTestId("item-row-i1");
+
+    await openMenu(user);
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    const input = screen.getByLabelText("New list title");
+    await user.clear(input);
+    await user.type(input, "Renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText("Could not rename the list. Please try again."),
+    ).toBeInTheDocument();
+    // The optimistic title is rolled back everywhere.
+    expect(screen.getByRole("heading", { name: "Weekly" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Weekly OWNER" })).toBeInTheDocument();
+    // The form stays open so the user can retry.
+    expect(screen.getByTestId("rename-list-form")).toBeInTheDocument();
+  });
+
+  it("hides Rename for a non-OWNER selected list (EDITOR)", async () => {
+    const mock = createApiFetchMock();
+    stubDefaultRoutes(mock);
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByTestId("item-row-i1");
+
+    // Switch to the EDITOR list first.
+    await openMenu(user);
+    await user.click(screen.getByRole("button", { name: "Party EDITOR" }));
+    await screen.findByText("No items to buy.");
+
+    await openMenu(user);
+    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Categories" })).toBeInTheDocument();
+  });
+
+  it("blocks renaming to an empty title client-side with no PATCH call", async () => {
+    const mock = createApiFetchMock();
+    stubDefaultRoutes(mock);
+    mock.stub();
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByTestId("item-row-i1");
+
+    await openMenu(user);
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    await user.clear(screen.getByLabelText("New list title"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(mock.callsTo("PATCH", "/api/lists/l1")).toHaveLength(0);
+    // The menu stays open so the user can retry.
+    expect(screen.getByTestId("menu-overlay")).toBeInTheDocument();
   });
 });

@@ -5,12 +5,14 @@ import { useLogout } from "../../auth/hooks/use-logout";
 import { useSession } from "../../auth/hooks/use-session";
 import type { CategoriesNavigationState } from "../../categories/pages/categories-page";
 import type { MembersNavigationState } from "../../members/pages/members-page";
-import { useCreateList, useDeleteList, useLists } from "../hooks/use-lists";
+import { useCreateList, useDeleteList, useLists, useUpdateList } from "../hooks/use-lists";
 import { CreateListForm } from "./create-list-form";
 import { DeleteListButton } from "./delete-list-button";
+import { RenameListForm } from "./rename-list-form";
 
 const GENERIC_CREATE_ERROR = "Could not create the list. Please try again.";
 const GENERIC_DELETE_ERROR = "Could not delete the list. Please try again.";
+const GENERIC_RENAME_ERROR = "Could not rename the list. Please try again.";
 
 const blockHeadingClass = "px-4 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400";
 const rowBaseClass =
@@ -30,10 +32,10 @@ interface AppMenuProps {
  * Single-line-header companion (docs/TASKS.md → T30): the hamburger opens an
  * overlay menu (drawer over the content) holding everything the old stacked
  * header and the list-controls row used to — account (email + sign out), list
- * management (switcher, create, OWNER-only delete, Categories, OWNER-only
- * Members, per-list roles as before) and the admin tools ("Users management"
- * → the T32 page, admins only). Closes on selection, Escape, and backdrop
- * tap; rows are ≥ 40 px touch targets.
+ * management (switcher, create, OWNER-only rename + delete, Categories,
+ * OWNER-only Members, per-list roles as before) and the admin tools ("Users
+ * management" → the T32 page, admins only). Closes on selection, Escape, and
+ * backdrop tap; rows are ≥ 40 px touch targets.
  */
 export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
   const { user } = useSession();
@@ -41,10 +43,12 @@ export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
   const logout = useLogout();
   const createList = useCreateList();
   const deleteList = useDeleteList();
+  const renameList = useUpdateList();
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showRenameForm, setShowRenameForm] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   const close = useCallback(() => {
@@ -56,6 +60,7 @@ export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
   const selectAndClose = (id: string) => {
     onSelectList(id);
     setShowCreateForm(false);
+    setShowRenameForm(false);
     close();
   };
 
@@ -69,7 +74,10 @@ export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
         aria-label="Menu"
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setShowRenameForm(false);
+          setOpen(true);
+        }}
         className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-600"
       >
         <svg
@@ -172,6 +180,33 @@ export function AppMenu({ selectedList, onSelectList }: AppMenuProps) {
                 </button>
                 {selectedList.role === "OWNER" ? (
                   <>
+                    {/* Rename (docs/TASKS.md → T40): OWNER-only, PATCH /lists/:id.
+                        The menu stays open on success so the renamed switcher row
+                        (and the header behind the overlay) show instantly. */}
+                    <button
+                      type="button"
+                      onClick={() => setShowRenameForm((visible) => !visible)}
+                      className={rowBaseClass}
+                    >
+                      Rename
+                    </button>
+                    {showRenameForm ? (
+                      <div className="px-4 pt-3">
+                        <RenameListForm
+                          key={selectedList.id}
+                          currentTitle={selectedList.title}
+                          pending={renameList.isPending}
+                          error={renameList.isError ? GENERIC_RENAME_ERROR : null}
+                          onSubmit={(values) =>
+                            renameList.mutate(
+                              { id: selectedList.id, title: values.title },
+                              { onSuccess: () => setShowRenameForm(false) },
+                            )
+                          }
+                          onCancel={() => setShowRenameForm(false)}
+                        />
+                      </div>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {
