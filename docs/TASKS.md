@@ -330,6 +330,20 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   all of it.
 - **Dependencies:** T31, T14, T30 (menu placement).
 
+### T36 — BOUGHT rows: strikethrough + faded styling *(bugfix)*
+- **Goal:** Bought items are visually indistinguishable from to-buy ones — the title should be
+  struck through and the whole row faded/pale/grey (the "Buy Me a Pie" convention).
+- **Inputs:** T16 (main screen item rows), docs/PROJECT.md (UX).
+- **Outputs:** in `apps/web/src/features/items/components/item-row.tsx` (and the section
+  container if needed): `item.status === "BOUGHT"` renders title with `line-through`, row content
+  (title, qty, badge) in muted gray (e.g. `text-gray-400`, bar/color swatch desaturated),
+  optionally reduced row opacity; TO_BUY rows unchanged; move buttons and other interactions
+  unchanged.
+- **Definition of Done:** on the main screen a bought item shows strikethrough title + faded
+  row; buying an item via tap/move applies the style immediately (optimistic update kept);
+  un-buying restores the normal look; row tests cover both states.
+- **Dependencies:** T16, T27 (row-tap toggle — style must not fight the tap affordance).
+
 ### T26 — Smart-add must allow creating a new item despite existing suggestions *(bugfix)*
 - **Goal:** Fix: typing "melon" with existing "watermelon" shows suggestions but gives no way to
   create the new item "melon".
