@@ -35,6 +35,7 @@ function stubRoutes(mock: ReturnType<typeof createApiFetchMock>, options?: { ref
   );
   mock.on("POST", "/api/auth/logout", () => json(204));
   mock.on("GET", "/api/lists", () => json(200, LISTS));
+  mock.on("GET", "/api/lists/l1/items", () => json(200, { items: [] }));
 }
 
 describe("auth flow (docs/TASKS.md → T14 Definition of Done)", () => {
