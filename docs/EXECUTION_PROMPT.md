@@ -57,8 +57,14 @@ You are the implementation agent for the grocery-list project. Complete exactly 
    - Keep existing tests green; fix the code, not the test expectations, unless the task says otherwise.
 
 4. Verify before stopping:
-   - pnpm install (first run only), then pnpm lint and pnpm test (if those scripts exist).
-   - Everything must pass.
+   - pnpm install (first run only).
+   - During the edit loop, run ONLY the tests for the code you touched
+     (e.g. `pnpm vitest run apps/api/src/routes/items.test.ts` or the single test file you
+     changed) plus `pnpm lint` on your edited files (`pnpm biome check --write <paths>`).
+     Iterate cheaply; do not re-run the full suite after every edit.
+   - Before finishing, run the full gate ONCE: `pnpm lint && pnpm test`. Everything must pass.
+   - If a `scripts/verify.sh` gate exists, the orchestrator re-runs your verification itself —
+     your final full pass must be from a clean state (no untracked artifacts).
 
 5. Update docs/EXECUTION_LOG.md:
    - Set the task's Status to DONE (or BLOCKED) and fill Date (YYYY-MM-DD).
