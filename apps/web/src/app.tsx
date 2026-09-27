@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RedirectIfAuthenticated, RequireAuth } from "./features/auth/components/session-guards";
 import { LoginPage } from "./features/auth/pages/login-page";
+import { ItemDetailsPage } from "./features/items/pages/item-details-page";
 import { ListsPage } from "./features/lists/pages/lists-page";
 
 export function App() {
@@ -19,6 +20,14 @@ export function App() {
         element={
           <RequireAuth>
             <ListsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/items/:itemId"
+        element={
+          <RequireAuth>
+            <ItemDetailsPage />
           </RequireAuth>
         }
       />

@@ -372,6 +372,42 @@ export function moveItem(db: Db, itemId: string, target: ItemStatus, now: Date =
 }
 
 /**
+ * `POST /lists/:id/items/reorder` (docs/API.md → Items): validates that
+ * `orderedIds` is exactly the list's items of the given status (foreign ids,
+ * wrong-status ids, duplicates, or a partial set → 400) and assigns
+ * `sortOrder = index` inside one transaction (docs/DATA_MODEL.md → Notes).
+ */
+export function reorderItems(
+  db: Db,
+  listId: string,
+  status: ItemStatus,
+  orderedIds: string[],
+): void {
+  db.transaction((tx) => {
+    const rows = tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.listId, listId), eq(items.status, status)))
+      .all();
+    const sectionIds = new Set(rows.map((row) => row.id));
+    const isPermutation =
+      orderedIds.length === sectionIds.size &&
+      new Set(orderedIds).size === orderedIds.length &&
+      orderedIds.every((id) => sectionIds.has(id));
+    if (!isPermutation) {
+      throw new FastifyHttpError(
+        400,
+        "VALIDATION_ERROR",
+        "orderedIds must contain every item of the list's section exactly once",
+      );
+    }
+    for (const [index, id] of orderedIds.entries()) {
+      db.update(items).set({ sortOrder: index }).where(eq(items.id, id)).run();
+    }
+  });
+}
+
+/**
  * smart-add (docs/API.md → Items): exact title match (case-insensitive) →
  * substring match both ways (LIKE) → fuzzy match (Dice ≥ 0.6) → create in
  * the default "Other" category. A matched BOUGHT item is re-activated; a

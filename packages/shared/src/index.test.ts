@@ -23,6 +23,7 @@ import {
   moveItemRequestSchema,
   priceObservationSchema,
   pricesResponseSchema,
+  reorderRequestSchema,
   searchResponseSchema,
   searchResultSchema,
   smartAddRequestSchema,
@@ -370,6 +371,31 @@ describe("moveItemRequestSchema", () => {
     expect(moveItemRequestSchema.safeParse({ status: "TO_BUY" }).success).toBe(false);
     expect(moveItemRequestSchema.safeParse({ status: "all" }).success).toBe(false);
     expect(moveItemRequestSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("reorderRequestSchema (T16.5)", () => {
+  it("accepts the stored status enum and a non-empty id list", () => {
+    expect(
+      reorderRequestSchema.parse({ status: "TO_BUY", orderedIds: ["i3", "i1", "i2"] }),
+    ).toEqual({ status: "TO_BUY", orderedIds: ["i3", "i1", "i2"] });
+    expect(reorderRequestSchema.parse({ status: "BOUGHT", orderedIds: ["i9"] }).status).toBe(
+      "BOUGHT",
+    );
+  });
+
+  it("rejects filter-style status, empty lists, and missing fields", () => {
+    expect(reorderRequestSchema.safeParse({ status: "to_buy", orderedIds: ["i1"] }).success).toBe(
+      false,
+    );
+    expect(reorderRequestSchema.safeParse({ status: "TO_BUY", orderedIds: [] }).success).toBe(
+      false,
+    );
+    expect(reorderRequestSchema.safeParse({ status: "TO_BUY" }).success).toBe(false);
+    expect(reorderRequestSchema.safeParse({ orderedIds: ["i1"] }).success).toBe(false);
+    expect(reorderRequestSchema.safeParse({ status: "TO_BUY", orderedIds: [""] }).success).toBe(
+      false,
+    );
   });
 });
 

@@ -228,6 +228,13 @@ export type UpdateItemRequest = z.infer<typeof updateItemRequestSchema>;
 export const moveItemRequestSchema = z.object({ status: itemStatusFilterSchema });
 export type MoveItemRequest = z.infer<typeof moveItemRequestSchema>;
 
+/** `POST /lists/:id/items/reorder` — the new manual order of one status section. */
+export const reorderRequestSchema = z.object({
+  status: itemStatusSchema,
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+export type ReorderRequest = z.infer<typeof reorderRequestSchema>;
+
 /** `POST /lists/:id/items/smart-add` — free text from the bottom input box. */
 export const smartAddRequestSchema = z.object({ text: titleSchema });
 export type SmartAddRequest = z.infer<typeof smartAddRequestSchema>;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLogout } from "../../auth/hooks/use-logout";
 import { useSession } from "../../auth/hooks/use-session";
+import { ItemSectionsContainer } from "../../items/components/item-sections-container";
 import { CreateListForm } from "../components/create-list-form";
 import { DeleteListButton } from "../components/delete-list-button";
 import { ListTabs } from "../components/list-tabs";
@@ -29,9 +30,6 @@ export function ListsPage() {
   // Falls back to the first list — covers initial load and deleting the selected list.
   const selectedList = listsData.find((list) => list.id === selectedId) ?? listsData[0] ?? null;
   const items = useItems(selectedList?.id ?? null);
-
-  const toBuy = (items.data?.items ?? []).filter((item) => item.status === "TO_BUY");
-  const bought = (items.data?.items ?? []).filter((item) => item.status === "BOUGHT");
 
   return (
     <div className="min-h-dvh bg-gray-50">
@@ -111,43 +109,12 @@ export function ListsPage() {
                     Could not load the items of this list.
                   </p>
                 ) : (
-                  <div className="mt-4 space-y-6">
-                    <section aria-label="To buy">
-                      <h2 className="text-sm font-semibold text-gray-900">To buy</h2>
-                      {toBuy.length === 0 ? (
-                        <p className="mt-2 text-sm text-gray-500">No items to buy.</p>
-                      ) : (
-                        <ul className="mt-2 space-y-2">
-                          {toBuy.map((item) => (
-                            <li
-                              key={item.id}
-                              className="rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-gray-200"
-                            >
-                              {item.title}
-                              {item.qtyText ? ` · ${item.qtyText}` : ""} · {item.daysInList}d
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
-                    <section aria-label="Bought">
-                      <h2 className="text-sm font-semibold text-gray-900">Bought</h2>
-                      {bought.length === 0 ? (
-                        <p className="mt-2 text-sm text-gray-500">Nothing bought yet.</p>
-                      ) : (
-                        <ul className="mt-2 space-y-2">
-                          {bought.map((item) => (
-                            <li
-                              key={item.id}
-                              className="rounded-lg bg-white px-3 py-2 text-gray-500 line-through shadow-sm ring-1 ring-gray-200"
-                            >
-                              {item.title}
-                              {item.qtyText ? ` · ${item.qtyText}` : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
+                  <div className="mt-4">
+                    <ItemSectionsContainer
+                      listId={selectedList.id}
+                      toBuy={(items.data?.items ?? []).filter((item) => item.status === "TO_BUY")}
+                      bought={(items.data?.items ?? []).filter((item) => item.status === "BOUGHT")}
+                    />
                   </div>
                 )}
               </section>

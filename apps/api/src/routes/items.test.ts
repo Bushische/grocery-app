@@ -13,6 +13,7 @@ import { loadConfig } from "../config";
 import { type Db, createDb, createSqlite } from "../db/client";
 import { runMigrations } from "../db/migrate";
 import { categories, items, priceObservations, users } from "../db/schema";
+import * as itemService from "../services/itemService";
 
 const OWNER = { email: "owner@example.com", password: "owner-password" };
 const EDITOR = { email: "editor@example.com", password: "editor-password" };
@@ -1250,5 +1251,155 @@ describe("POST /items/:id/image", () => {
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe("UNAUTHORIZED");
     expect(itemById(item.id)?.imageFilename).toBeNull();
+  });
+});
+
+describe("POST /lists/:id/items/reorder (docs/TASKS.md → T16.5)", () => {
+  async function reorder(
+    listId: string,
+    orderedIds: string[],
+    token = editorToken,
+    status = "TO_BUY",
+  ) {
+    return app.inject({
+      method: "POST",
+      url: `/lists/${listId}/items/reorder`,
+      headers: bearer(token),
+      payload: { status, orderedIds },
+    });
+  }
+
+  it("reorders TO_BUY items, persists sortOrder = index, and leaves BOUGHT untouched", async () => {
+    const listId = await createScratchList("Reorder Happy");
+    const category = otherCategoryOf(listId).id;
+    const a = seedItem(listId, category, { title: "A", status: "TO_BUY", sortOrder: 0 });
+    const b = seedItem(listId, category, { title: "B", status: "TO_BUY", sortOrder: 1 });
+    const c = seedItem(listId, category, { title: "C", status: "TO_BUY", sortOrder: 2 });
+    const bought = seedItem(listId, category, {
+      title: "Bought",
+      status: "BOUGHT",
+      sortOrder: 0,
+    });
+
+    const res = await reorder(listId, [c.id, a.id, b.id], ownerToken);
+    expect(res.statusCode).toBe(204);
+    expect(res.body).toBe("");
+
+    expect(itemById(a.id)?.sortOrder).toBe(1);
+    expect(itemById(b.id)?.sortOrder).toBe(2);
+    expect(itemById(c.id)?.sortOrder).toBe(0);
+    // BOUGHT items live in a separate sortOrder space.
+    expect(itemById(bought.id)?.sortOrder).toBe(0);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=to_buy`,
+      headers: bearer(ownerToken),
+    });
+    expect((list.json().items as { title: string }[]).map((item) => item.title)).toEqual([
+      "C",
+      "A",
+      "B",
+    ]);
+  });
+
+  it("rejects a foreign id with 400 and persists nothing (DoD)", async () => {
+    const listId = await createScratchList("Reorder Foreign");
+    const foreignItem = seedItem(familyListId, otherCategoryId, {
+      title: "Foreign",
+      sortOrder: 0,
+    });
+    const mine = seedItem(listId, otherCategoryOf(listId).id, { title: "Mine", sortOrder: 0 });
+
+    const res = await reorder(listId, [foreignItem.id, mine.id]);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    expect(itemById(mine.id)?.sortOrder).toBe(0);
+    expect(itemById(foreignItem.id)?.sortOrder).toBe(0);
+  });
+
+  it("rejects a partial set, duplicates, and wrong-status ids with 400", async () => {
+    const listId = await createScratchList("Reorder Partial");
+    const category = otherCategoryOf(listId).id;
+    const a = seedItem(listId, category, { title: "A", status: "TO_BUY", sortOrder: 0 });
+    const b = seedItem(listId, category, { title: "B", status: "TO_BUY", sortOrder: 1 });
+    const bought = seedItem(listId, category, {
+      title: "Bought",
+      status: "BOUGHT",
+      sortOrder: 0,
+    });
+
+    for (const orderedIds of [[a.id], [a.id, a.id], [a.id, b.id, bought.id]]) {
+      const res = await reorder(listId, orderedIds);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+    expect(itemById(a.id)?.sortOrder).toBe(0);
+    expect(itemById(b.id)?.sortOrder).toBe(1);
+    // BOUGHT items have their own sortOrder space — only TO_BUY participates.
+    expect(itemById(bought.id)?.sortOrder).toBe(0);
+  });
+
+  it("validates the request body and status with 400", async () => {
+    const listId = await createScratchList("Reorder Validation");
+    for (const payload of [
+      { orderedIds: ["i1"] }, // missing status
+      { status: "TO_BUY" }, // missing orderedIds
+      { status: "TO_BUY", orderedIds: [] }, // empty
+      { status: "SOMEDAY", orderedIds: ["i1"] }, // bad status
+      { status: "to_buy", orderedIds: ["i1"] }, // filter-style not accepted here
+    ]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/lists/${listId}/items/reorder`,
+        headers: bearer(editorToken),
+        payload,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+  });
+
+  it("requires EDITOR: VIEWER and non-members get 403", async () => {
+    const listId = await createScratchList("Reorder Roles");
+    const item = seedItem(listId, otherCategoryOf(listId).id, { title: "A", sortOrder: 0 });
+    for (const token of [viewerToken, outsiderToken]) {
+      const res = await reorder(listId, [item.id], token);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("FORBIDDEN");
+    }
+    expect(itemById(item.id)?.sortOrder).toBe(0);
+  });
+
+  it("rejects an unknown list with 404 and a missing token with 401", async () => {
+    const noList = await reorder("no-such-list", ["i1"]);
+    expect(noList.statusCode).toBe(404);
+    expect(noList.json().error.code).toBe("NOT_FOUND");
+
+    const noAuth = await app.inject({
+      method: "POST",
+      url: `/lists/${familyListId}/items/reorder`,
+      payload: { status: "TO_BUY", orderedIds: ["i1"] },
+    });
+    expect(noAuth.statusCode).toBe(401);
+    expect(noAuth.json().error.code).toBe("UNAUTHORIZED");
+  });
+
+  it("reorders 50 items in under 10 ms (DoD)", async () => {
+    const listId = await createScratchList("Reorder Perf");
+    const category = otherCategoryOf(listId).id;
+    const inserted = Array.from({ length: 50 }, (_, index) =>
+      seedItem(listId, category, { title: `Item ${index}`, sortOrder: index }),
+    );
+    const reversed = [...inserted].reverse().map((item) => item.id);
+
+    const started = performance.now();
+    itemService.reorderItems(db, listId, "TO_BUY", reversed);
+    const elapsed = performance.now() - started;
+
+    expect(elapsed).toBeLessThan(10);
+    for (const [index, item] of inserted.reverse().entries()) {
+      expect(itemById(item.id)?.sortOrder).toBe(index);
+    }
   });
 });

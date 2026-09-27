@@ -8,6 +8,7 @@ import {
   itemStatusFilterSchema,
   itemsResponseSchema,
   moveItemRequestSchema,
+  reorderRequestSchema,
   smartAddRequestSchema,
   smartAddResponseSchema,
   updateItemRequestSchema,
@@ -72,6 +73,17 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
       const { text } = smartAddRequestSchema.parse(request.body);
       const result = itemService.smartAddItem(db, id, text);
       return reply.status(result.created ? 201 : 200).send(smartAddResponseSchema.parse(result));
+    },
+  );
+
+  app.post(
+    "/lists/:id/items/reorder",
+    { preHandler: [requireAuth, requireListRole("EDITOR")] },
+    async (request, reply) => {
+      const { id } = listIdParamsSchema.parse(request.params);
+      const { status, orderedIds } = reorderRequestSchema.parse(request.body);
+      itemService.reorderItems(db, id, status, orderedIds);
+      return reply.status(204).send();
     },
   );
 

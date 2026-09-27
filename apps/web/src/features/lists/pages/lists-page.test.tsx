@@ -88,7 +88,7 @@ describe("ListsPage (docs/TASKS.md → T15)", () => {
     expect(weeklyTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Party" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByText("2 to buy · 1 bought")).toBeInTheDocument();
-    expect(await screen.findByText("Milk · 2x · 3d")).toBeInTheDocument();
+    expect((await screen.findByTestId("item-row-i1")).textContent).toContain("Milk");
     expect(screen.getByText("Bread")).toBeInTheDocument();
     expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(1);
     expect(mock.callsTo("GET", "/api/lists/l2/items")).toHaveLength(0);
@@ -103,7 +103,7 @@ describe("ListsPage (docs/TASKS.md → T15)", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText("Milk · 2x · 3d");
+    await screen.findByTestId("item-row-i1");
     expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(1);
 
     await user.click(screen.getByRole("tab", { name: "Party" }));
@@ -112,13 +112,13 @@ describe("ListsPage (docs/TASKS.md → T15)", () => {
     expect(screen.getByRole("tab", { name: "Party" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Weekly" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByText("0 to buy · 0 bought")).toBeInTheDocument();
-    expect(screen.queryByText("Milk · 2x · 3d")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("item-row-i1")).not.toBeInTheDocument();
     expect(screen.getByText("No items to buy.")).toBeInTheDocument();
 
     // Switching back refetches the first list again (staleTime 0).
     await user.click(screen.getByRole("tab", { name: "Weekly" }));
     await waitFor(() => expect(mock.callsTo("GET", "/api/lists/l1/items")).toHaveLength(2));
-    expect(await screen.findByText("Milk · 2x · 3d")).toBeInTheDocument();
+    expect((await screen.findByTestId("item-row-i1")).textContent).toContain("Milk");
   });
 
   it("shows delete only for lists where the user is OWNER (DoD)", async () => {
