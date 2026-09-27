@@ -477,6 +477,21 @@ describe("POST /lists/:id/members", () => {
     expect(membership?.role).toBe("EDITOR");
   });
 
+  it("rejects adding a member with the OWNER role with 400 (one owner per list)", async () => {
+    const res = await addMember(ownerToken, familyListId, OUTSIDER.email, "OWNER");
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    const memberships = db
+      .select()
+      .from(listMembers)
+      .where(eq(listMembers.listId, familyListId))
+      .all();
+    expect(memberships.filter((member) => member.role === "OWNER")).toHaveLength(1);
+    expect(
+      memberships.find((member) => member.userId === userIdByEmail(OUTSIDER.email)),
+    ).toBeUndefined();
+  });
+
   it("rejects an already-member user with 409", async () => {
     const res = await addMember(ownerToken, familyListId, EDITOR.email, "VIEWER");
     expect(res.statusCode).toBe(409);

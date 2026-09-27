@@ -98,6 +98,18 @@ describe("list schemas", () => {
     );
   });
 
+  it("addListMemberRequestSchema rejects the OWNER role (one owner per list)", () => {
+    expect(addListMemberRequestSchema.safeParse({ email: "a@b.co", role: "OWNER" }).success).toBe(
+      false,
+    );
+    expect(addListMemberRequestSchema.safeParse({ email: "a@b.co", role: "EDITOR" }).success).toBe(
+      true,
+    );
+    expect(addListMemberRequestSchema.safeParse({ email: "a@b.co", role: "VIEWER" }).success).toBe(
+      true,
+    );
+  });
+
   it("listSummarySchema requires id, title, role, and itemCounts", () => {
     const value = { id: "l1", title: "Weekly", role: "OWNER", itemCounts: { toBuy: 5, bought: 2 } };
     expect(listSummarySchema.parse(value)).toEqual(value);

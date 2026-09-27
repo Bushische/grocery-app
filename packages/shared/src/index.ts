@@ -50,6 +50,11 @@ export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export const listRoleSchema = z.enum(["OWNER", "EDITOR", "VIEWER"]);
 export type ListRole = z.infer<typeof listRoleSchema>;
 
+/** Roles grantable through the members API — a list's OWNER is fixed at creation
+ * (docs/PROJECT.md: one owner per list), so member add/role-edit never mint another. */
+export const assignableListRoleSchema = listRoleSchema.exclude(["OWNER"]);
+export type AssignableListRole = z.infer<typeof assignableListRoleSchema>;
+
 /** Trimmed, non-empty title (lists now; categories/items in later tasks). */
 export const titleSchema = z.string().trim().min(1);
 
@@ -90,9 +95,11 @@ export const listDetailSchema = z.object({
 });
 export type ListDetail = z.infer<typeof listDetailSchema>;
 
+/** Request of `POST /lists/:id/members` — OWNER is rejected here: ownership is
+ * established by list creation and never granted via the members API. */
 export const addListMemberRequestSchema = z.object({
   email: emailSchema,
-  role: listRoleSchema,
+  role: assignableListRoleSchema,
 });
 export type AddListMemberRequest = z.infer<typeof addListMemberRequestSchema>;
 
