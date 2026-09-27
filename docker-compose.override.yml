@@ -2,4 +2,4 @@ services:
   api:
     volumes:
       - ./local-data:/data
-      - uploads:/data/images  
+      - ./local-data/images:/data/images  

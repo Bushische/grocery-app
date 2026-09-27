@@ -447,3 +447,17 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   recreates "Other"; plain `POST /items` works; concurrent deletes don't duplicate "Other"
   (unique per list+title); existing category-delete tests stay green.
 - **Dependencies:** T8, T19.
+
+### T38 — Uploads writability self-check at api boot *(ops hardening)*
+- **Goal:** Fix: a root-owned (or read-only) uploads dir surfaces as an opaque 500
+  (`EACCES ... writeFileSync`) only when a user first tries to upload — it should fail fast at
+  boot with an actionable message (seen in local Docker: named `uploads` volume pre-dating the
+  non-root `app` user stays root-owned forever).
+- **Inputs:** docs/ARCHITECTURE.md (Persistence), T21 (non-root runtime user), T10 (image write).
+- **Outputs:** at api startup, after resolving `uploadsPath`: create it if missing (already done)
+  and write-probe it (create+delete a temp file) as the runtime user; on failure, log an explicit
+  error naming the path, uid, and the fix (`chown -R 100:101 <path>` or a bind mount) and exit
+  non-zero in production; in dev, log a loud warning and continue.
+- **Definition of Done:** test: read-only uploads path → boot fails (prod) with the actionable
+  message; writable path → boots normally; existing boot tests green.
+- **Dependencies:** T4.5 (config), T21.

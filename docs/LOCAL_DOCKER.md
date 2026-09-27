@@ -41,19 +41,24 @@ chmod -R 777 local-data                                  # container runs as uid
 ```
 
 Create `docker-compose.override.yml` in the repo root (replace the named `data` volume with the
-bind mount):
+bind mount; also bind-mount the uploads dir so file permissions behave like the db's):
 
 ```yaml
 services:
   api:
     volumes:
       - ./local-data:/data
-      - uploads:/data/images
+      - ./local-data/images:/data/images
 ```
 
 > ⚠️ Compose does **not** auto-merge `docker-compose.override.yml` when you pass `-f` explicitly —
 > you must list it in the `up` command (step 4). If you forget, the api mounts the named volume
 > and you get `SqliteError: unable to open database file` (SQLITE_CANTOPEN).
+>
+> ⚠️ Keep the **bind mount for `/data/images` too**. The default `uploads:` named volume was
+> created by an early root-user image and stays root-owned forever (named volumes inherit
+> ownership only at first creation) → the non-root `app` api gets `EACCES` → every upload 500s.
+> If you must use a named volume, fix it once: `docker run --rm -v grocery-list_uploads:/d alpine chown -R 100:101 /d`.
 
 ## 4. Start the stack
 
