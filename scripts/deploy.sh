@@ -32,7 +32,9 @@ for tag in "$API_TAG" "$WEB_TAG"; do
 done
 
 echo ">>> transferring compose file"
-scp "$COMPOSE_FILE" "$NAS_HOST:grocery/$COMPOSE_FILE"
+# -O forces the legacy scp protocol: DSM 7's sshd frequently has the sftp
+# subsystem disabled ("subsystem request failed on channel 0").
+scp -O "$COMPOSE_FILE" "$NAS_HOST:grocery/$COMPOSE_FILE"
 
 cat <<EOF
 
