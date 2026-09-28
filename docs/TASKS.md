@@ -530,3 +530,27 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   badge updates without reload is NOT required (static per load is fine) but tests pin the
   three buckets; no API changes.
 - **Dependencies:** T16, T36.
+
+### T43 — Add items directly from the category view *(feature)*
+- **Goal:** The category view (T19's CategoryItemsPage) is read-only — to file "Milk" under
+  Dairy you must go item → category select. The user wants to open a category and add the items
+  they usually buy right there.
+- **Inputs:** T19 (category items page), T17/T26/T29 (bottom input + suggestions + popover
+  pattern), docs/API.md (suggest is list-scoped and grouped by category; POST items accepts
+  categoryId; move re-activates).
+- **Outputs:** category items page gets the same bottom input bar (T29 popover style: ≤ 3
+  suggestions above the input, Create row) **scoped to this category**:
+  - suggestions come from the existing `GET /items/suggest?q=&listId=` but only this category's
+    group is shown;
+  - tapping a TO_BUY suggestion = no-op (already listed, close);
+  - tapping a BOUGHT suggestion = `POST /items/:id/move { status: "to_buy" }` (re-activate in
+    its category);
+  - no match / Create row = `POST /lists/:id/items { title, categoryId: <this category> }` —
+    the created item belongs to the category regardless of the "Other" fallback (which stays
+    the main-screen smart-add behavior);
+  - VIEWER sees no input bar (read-only page, as today).
+- **Definition of Done:** from a category: create → appears in the category view and on the
+  main screen in that category's group; bought suggestion → re-activated in place; suggest
+  limited to this category; title/qty fields per the main add flow; tests for create, reactivate,
+  category-scoping, VIEWER absence.
+- **Dependencies:** T19, T26, T29.
