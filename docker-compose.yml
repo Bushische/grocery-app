@@ -41,13 +41,16 @@ services:
   # T22: same as prod — tunnels https://grocery.<your-domain> → web:8080 (token mode).
   # Start with: docker compose --profile tunnel up -d (requires TUNNEL_TOKEN in .env;
   # for local dev without a tunnel, use the web service's published port directly).
+  # NOTE: the token is interpolated as optional (${TUNNEL_TOKEN:-}) because compose
+  # interpolates ALL services even when the tunnel profile is not started. Enabling
+  # the profile without a token will crash-loop this service (restart: unless-stopped).
   tunnel:
     profiles: ['tunnel']
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env to enable the tunnel}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
       web:
         condition: service_healthy
