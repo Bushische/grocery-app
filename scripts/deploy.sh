@@ -21,7 +21,9 @@ transferred=0
 for tag in "$API_TAG" "$WEB_TAG"; do
   if docker image inspect "$tag" >/dev/null 2>&1; then
     echo ">>> transferring $tag"
-    docker save "$tag" | ssh "$NAS_HOST" docker load
+    # DSM keeps the docker CLI in /usr/local/bin, which is not on the default
+    # non-interactive SSH PATH — use the absolute path.
+    docker save "$tag" | ssh "$NAS_HOST" /usr/local/bin/docker load
     transferred=$((transferred + 1))
   else
     echo "!! image $tag not found locally — run ./scripts/build-images.sh first" >&2
@@ -38,5 +40,5 @@ Images transferred ($transferred). On the NAS run:
 
   cd ~/grocery
   # create .env from .env.prod.example (JWT_SECRET, CORS_ORIGIN, …)
-  docker compose -f $COMPOSE_FILE --env-file .env up -d
+  /usr/local/bin/docker compose -f $COMPOSE_FILE --env-file .env up -d
 EOF
