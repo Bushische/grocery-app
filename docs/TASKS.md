@@ -555,23 +555,23 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   category-scoping, VIEWER absence.
 - **Dependencies:** T19, T26, T29.
 
-### T44 — Price observation: shop optional *(contract change)*
+### T44 — Price observation: shop optional *(simplified: empty string, no migration)*
 - **Goal:** Shop is required today ("validates price > 0, shop non-empty") — users don't always
-  know/care which shop the price is from. Make it optional.
-- **Inputs:** docs/API.md (Prices), docs/DATA_MODEL.md (priceObservations), T11 (prices API),
-  T18 (price form + chart labels).
-- **Outputs (one task — the contract, shared schemas, db and UI together):**
-  - contracts: docs/DATA_MODEL.md — `priceObservations.shop` becomes nullable (`shop: text` no
-    `notNull`); docs/API.md — request `shop?` (optional), response/DTO `shop: string | null`;
-    `currentPrice.shop` nullable.
-  - `packages/shared`: `createPriceObservationRequestSchema` — shop optional (absent/empty →
-    null, trim otherwise); `priceObservationSchema` / `itemSchema.currentPrice` allow null shop.
-  - api: drop the non-empty validation; store null when absent; DTO unchanged otherwise; drizzle
-    migration for the nullable column (existing rows keep their shops).
-  - web: PriceForm — shop input optional (label "Shop (optional)", no required-field error);
-    PriceChart/point labels render just the price when shop is null (no "undefined"/empty dash);
-    history rows similar.
-- **Definition of Done:** POST prices without shop → 201, observation persisted with null shop,
+  know/care which shop the price is from. Make it optional **by allowing an empty string**
+  (column stays `NOT NULL`, DTO stays `shop: string`) — deliberately NOT nullable, to avoid a
+  schema migration and DTO churn. Trade-off accepted: `""` rows exist; a later search/group-by
+  shop feature must treat `""` as "unknown".
+- **Inputs:** docs/API.md (Prices), T11 (prices API), T18 (price form + chart labels).
+- **Outputs (one task):**
+  - contract: docs/API.md Prices — `shop` optional, empty string means unknown
+    ("shop non-empty" → "shop optional; may be empty").
+  - `packages/shared`: `createPriceObservationRequestSchema` — shop optional, trimmed, may be
+    `""`; `priceObservationSchema` / `itemSchema.currentPrice` — shop stays `string`, `""` valid.
+  - api: drop the non-empty validation in priceService (price > 0 stays).
+  - web: PriceForm — shop input optional (label "Shop (optional)"); submit passes the trimmed
+    string, `""` when empty; PriceChart/point labels and history rows render only the price when
+    shop is `""` (no dangling separator).
+- **Definition of Done:** POST prices without shop → 201, observation persisted with `""`,
   appears in history + item.currentPrice; with shop → unchanged; chart + history render both
-  cases cleanly; migration applies to a populated db; tests cover both; lint+test green.
-- **Dependencies:** T11, T18, T19 (touch order irrelevant but follows the feature line).
+  cases cleanly; tests cover both; lint+test green.
+- **Dependencies:** T11, T18.

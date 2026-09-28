@@ -53,7 +53,7 @@ Statuses: `PENDING` → `IN_PROGRESS` → `DONE` | `BLOCKED`
 | T41 | List selection in URL; details listId from route | DONE | 2026-09-28 | web-only, no shared/API changes (frozen API.md item DTO has no listId → the task's nested-route output chosen over the payload one): main screen routed `/lists/:listId` (bare `/` and stale/deleted/foreign ids redirect replace to the first list; useState selection gone); menu switch/create/delete = navigation, no component state; canonical details route `/lists/:listId/items/:itemId` — row long-press/right-click and the category view navigate there, DetailsNavigationState removed; legacy `/items/:id` deep links self-resolve the list from the payload — cached `["items", listId]` scan (pure findItemListIdInCache) else `GET /search?q=<title>` (rows carry itemId→listId; contract reuse) — then upgrade to the canonical URL; Back navigates explicitly to `/lists/:listId`; categories fetch always has a real listId; useCreateList appends the created summary to `["lists"]` so navigate-to-created doesn't race the invalidation refetch; 7 new tests (deep-link editable category + canonical URL, warm cache resolution w/ 0 search calls, read-only degradation when unresolvable, Back→non-first list, URL-owned switch/delete/create, non-first-list deep link) + URL probes; lint+test+build green (463 = 456 + 7) |
 | T42 | Humanized age badge | PENDING | | |
 | T43 | Add items directly from the category view | PENDING | | |
-| T44 | Price observation: shop optional (contract change) | PENDING | | |
+| T44 | Price observation: shop optional (empty string) | PENDING | | |
 
 ## Rules
 - One task per agent session; one commit per task (made by the orchestrator after verification).
