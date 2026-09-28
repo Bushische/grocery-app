@@ -577,3 +577,28 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   appears in history + item.currentPrice; with shop → unchanged; chart + history render both
   cases cleanly; tests cover both; lint+test green.
 - **Dependencies:** T11, T18.
+
+### T45 — Price history rows newest-first *(bugfix)*
+- **Goal:** Fix: the price list under the chart shows the oldest price on top — the user wants
+  the most fresh price first.
+- **Inputs:** T28 (price chart + legend rows), docs/API.md (Prices — newest first).
+- **Outputs:** in `price-chart.tsx` the legend rows render from the API order (`observations`,
+  already newest-first) — NOT from the chart-reversed `points`; the uplot line keeps its
+  oldest→newest left→right order (buildPriceChartData reversal for the canvas stays).
+- **Definition of Done:** two observations (old, new) → the top row is the newest; chart X axis
+  still runs left→right in time; tests pin row order + chart order separately.
+- **Dependencies:** T28.
+
+### T46 — Item photo: bigger preview + full-size view *(UX)*
+- **Goal:** The stored photo is a 96 px square — details are unreadable; clicking should show it
+  full size.
+- **Inputs:** T18/T10 (image upload, 600 px webp), image-upload.tsx.
+- **Outputs:** the stored image renders large — full card width, ~aspect-preserving height
+  (e.g. h-52, object-cover), tappable; tapping (stored image or pre-upload preview) opens a
+  full-screen lightbox overlay: dimmed backdrop, centered image at full width/height fit,
+  close on backdrop tap / ✕ button / Escape; the upload/replace controls stay below the large
+  preview; ≥ 40 px close target.
+- **Definition of Done:** stored photo shows large on the details page; tap → full-screen view;
+  all three close paths work; upload flow unchanged (preview → replace → persisted URL);
+  tests: large render, open/close overlay.
+- **Dependencies:** T18, T10.
