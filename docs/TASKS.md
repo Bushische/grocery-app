@@ -569,8 +569,10 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
     `""`; `priceObservationSchema` / `itemSchema.currentPrice` — shop stays `string`, `""` valid.
   - api: drop the non-empty validation in priceService (price > 0 stays).
   - web: PriceForm — shop input optional (label "Shop (optional)"); submit passes the trimmed
-    string, `""` when empty; PriceChart/point labels and history rows render only the price when
-    shop is `""` (no dangling separator).
+    string, `""` when empty; **shop placeholder/default example becomes "Tops"** (price-form
+    placeholder `e.g. Tops`; docs/API.md price examples switched from Lidl to Tops); PriceChart/
+    point labels and history rows render only the price when shop is `""` (no dangling
+    separator).
 - **Definition of Done:** POST prices without shop → 201, observation persisted with `""`,
   appears in history + item.currentPrice; with shop → unchanged; chart + history render both
   cases cleanly; tests cover both; lint+test green.
