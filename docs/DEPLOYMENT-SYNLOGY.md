@@ -23,7 +23,7 @@ Container Manager, first boot, first admin.
    - **eu.org** — free `yourname.eu.org`, approval can take days/weeks.
    - **Cheapest real domain** (~$1–2/yr, e.g. `.xyz` on Cloudflare Registrar / Porkbun) — the
      zero-friction option.
-3. Laptop with the repo, Docker, and SSH access to the NAS (`ssh admin@<nas-ip>`).
+3. Laptop with the repo, Docker, and SSH access to the NAS (`ssh <your-ssh-user>@<nas-ip>`).
 
 ## 2. Domain → Cloudflare
 
@@ -56,11 +56,24 @@ don't. Fine for a first smoke test; use §1–§2 for the real thing.
 
 1. DSM → **Package Center** → install **Container Manager** (this is the Docker engine).
 2. Enable SSH: DSM → **Control Panel → Terminal & SNMP → Enable SSH**.
-3. SSH in and create the app folder:
+3. SSH in and create the app folder. **Use your own SSH-enabled user** (the built-in `admin`
+   is disabled by default on DSM 7; `ssh <your-ssh-user>@<nas-ip>`).
+   - **Where are my disks?** On Synology the storage is mounted under `/volume1` (sometimes
+     `/volume2` for a second pool). If `ls /` doesn't show it from your user, look at
+     `ls /volume*` via sudo, or find where DSM stores shared folders:
+     `sudo ls /volume1/` (you should see `docker`, `homes`, `photo`, …).
+   - If your volume is not `/volume1`, replace it in **all** commands below.
    ```bash
-   ssh admin@<nas-ip>
-   sudo mkdir -p /volume1/docker/grocery && sudo chown admin:users /volume1/docker/grocery
+   ssh <your-ssh-user>@<nas-ip>
+   sudo -i                                  # become root for the setup steps
+   ls /volume1                              # confirm the volume path
+   mkdir -p /volume1/docker/grocery
+   chown <your-ssh-user>:users /volume1/docker/grocery   # or leave root-owned and use sudo
+   exit                                     # back to your user
    ```
+   - If `sudo` says your user is not in the sudoers/administrators group: DSM → **Control
+     Panel → Users → your user → Edit → check "administrators"** (SSH users must be in the
+     administrators group to sudo).
    (Named volumes are used for data — `data` and `uploads` are created by compose on first
    boot and inherit the container's `app` user ownership automatically. No manual chown
    needed; see `docs/LOCAL_DOCKER.md` only if you switch to bind mounts.)
@@ -71,10 +84,10 @@ On the **laptop** (arm64 images, same platform as the NAS):
 
 ```bash
 ./scripts/build-images.sh                    # builds + tags grocery-api / grocery-web
-./scripts/deploy.sh admin@<nas-ip>           # docker save | ssh docker load (see docs/DEPLOYMENT.md §4)
+./scripts/deploy.sh <your-ssh-user>@<nas-ip>           # docker save | ssh docker load (see docs/DEPLOYMENT.md §4)
 ```
 
-Or manual: `docker save grocery-api grocery-web | ssh admin@<nas-ip> docker load`.
+Or manual: `docker save grocery-api grocery-web | ssh <your-ssh-user>@<nas-ip> docker load`.
 
 ## 6. Compose project on the NAS
 
@@ -91,7 +104,7 @@ Or manual: `docker save grocery-api grocery-web | ssh admin@<nas-ip> docker load
    chmod 600 .env
    ```
 2. Copy `docker-compose.prod.yml` from the repo to the same folder
-   (`scp docker-compose.prod.yml admin@<nas-ip>:/volume1/docker/grocery/`).
+   (`scp docker-compose.prod.yml <your-ssh-user>@<nas-ip>:/volume1/docker/grocery/`).
 3. Start:
    ```bash
    docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env up -d
@@ -131,7 +144,7 @@ Or manual: `docker save grocery-api grocery-web | ssh admin@<nas-ip> docker load
 
 - Backups: `docs/DEPLOYMENT.md` §10 (daily SQLite `.backup` + weekly uploads tar via DSM
   Task Scheduler).
-- Upgrades: laptop `git pull && ./scripts/build-images.sh && ./scripts/deploy.sh admin@<nas-ip>`
+- Upgrades: laptop `git pull && ./scripts/build-images.sh && ./scripts/deploy.sh <your-ssh-user>@<nas-ip>`
   then on the NAS `docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env
   up -d` (recreates on image change). **PWA note:** users must reload once (twice until T47's
   update-toast ships) to get the new shell.
