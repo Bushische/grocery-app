@@ -63,7 +63,9 @@ export function CategoriesPage() {
             canDelete={canDelete}
             onViewItems={(categoryId) =>
               void navigate(`/categories/${categoryId}`, {
-                state: { listId } satisfies CategoryItemsNavigationState,
+                // T43: the role rides along so the category view can show its
+                // scoped add-input bar to EDITOR+ (VIEWER stays read-only).
+                state: { listId, role } satisfies CategoryItemsNavigationState,
               })
             }
           />
