@@ -106,7 +106,7 @@ GET /lists/:id/items?status=to_buy|bought
       "sortOrder": 0, "addedAt": "2026-09-27T08:00:00Z", "daysInList": 3,
       "category": { "id": "c1", "title": "Dairy", "color": "#3B82F6" },
       "imageFilename": null,
-      "currentPrice": { "price": 1.99, "shop": "Lidl", "observedAt": "2026-09-25T10:00:00Z" } | null
+      "currentPrice": { "price": 1.99, "shop": "Tops", "observedAt": "2026-09-25T10:00:00Z" } | null
     }] }
 Ordered by sortOrder ASC, addedAt ASC.
 
@@ -139,8 +139,8 @@ POST /lists/:id/items/reorder   { "status": "TO_BUY", "orderedIds": ["i3","i1","
 
 ## Prices
 ```
-POST /items/:id/prices   { "price": 1.99, "shop": "Lidl", "observedAt": "2026-09-27T10:00:00Z"? }
-→ 201 observation (validates price > 0, shop non-empty)
+POST /items/:id/prices   { "price": 1.99, "shop": "Tops", "observedAt": "2026-09-27T10:00:00Z"? }
+→ 201 observation (validates price > 0; shop optional, may be empty "" = unknown)
 
 GET /items/:id/prices?cursor=&limit=
 → 200 { "observations": [{ "price", "shop", "observedAt" }],

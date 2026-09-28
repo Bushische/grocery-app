@@ -92,4 +92,19 @@ describe("PriceChart (T28: reserved layout space + placeholders)", () => {
     expect(rows[1]).toHaveTextContent("Lidl");
     expect(rows[1]).toHaveTextContent("25 Sep 2026");
   });
+
+  it('renders an unknown shop ("") as price + date only — no dangling label (T44 DoD)', async () => {
+    render(
+      <PriceChart observations={[observation(NEW, 1.99, ""), observation(OLD, 2.49, "Tops")]} />,
+    );
+    await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(1));
+    const rows = screen.getAllByTestId("price-point");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("2.49");
+    expect(rows[0]).toHaveTextContent("Tops");
+    // Unknown shop: only the price and the date, nothing in between.
+    expect(rows[1]).toHaveTextContent("1.99");
+    expect(rows[1]).toHaveTextContent("25 Sep 2026");
+    expect(rows[1].textContent).toBe("1.9925 Sep 2026");
+  });
 });

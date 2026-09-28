@@ -201,7 +201,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     expect(uPlotCtor).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("Price"), "2.5");
-    await user.type(screen.getByLabelText("Shop"), "Netto");
+    await user.type(screen.getByLabelText("Shop (optional)"), "Netto");
     await user.click(screen.getByRole("button", { name: "Add price" }));
 
     await waitFor(() =>
@@ -241,11 +241,47 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     renderPage();
 
     await screen.findByDisplayValue("Milk");
-    await user.type(screen.getByLabelText("Shop"), "Netto");
+    await user.type(screen.getByLabelText("Shop (optional)"), "Netto");
     await user.click(screen.getByRole("button", { name: "Add price" }));
 
     expect(await screen.findByText("Enter a price greater than 0.")).toBeInTheDocument();
     expect(mock.callsTo("POST", "/api/items/i1/prices")).toHaveLength(0);
+  });
+
+  it('adds a price without shop (T44 DoD): submits "" and renders the point price-only', async () => {
+    detail = detailFixture({ prices: [observation()], currentPrice: observation() });
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.on("POST", "/api/items/i1/prices", ({ body }) => {
+      const request = body as { price: number; shop: string };
+      const created = observation({ price: request.price, shop: request.shop });
+      detail = { ...detail, currentPrice: created, prices: [created, ...detail.prices] };
+      return json(201, created);
+    });
+    mock.stub();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByDisplayValue("Milk");
+    // Shop left empty — the optional input stays blank.
+    await user.type(screen.getByLabelText("Price"), "1.2");
+    await user.click(screen.getByRole("button", { name: "Add price" }));
+
+    await waitFor(() =>
+      expect(mock.callsTo("POST", "/api/items/i1/prices")[0]?.body).toEqual({
+        price: 1.2,
+        shop: "",
+      }),
+    );
+    // The refetched history flows into the legend (rows render oldest → newest,
+    // chart order — T45 flips this to API order): the new point renders only
+    // price + date — no dangling shop label.
+    await waitFor(() => expect(pricePoints()).toHaveLength(2));
+    const points = pricePoints();
+    expect(points[0]).toHaveTextContent("1.99");
+    expect(points[0]).toHaveTextContent("Lidl");
+    expect(points[1]?.textContent).toBe("1.2025 Sep 2026");
   });
 
   it("round-trips an image (DoD): pick → client downscale → multipart POST → stored /static URL", async () => {

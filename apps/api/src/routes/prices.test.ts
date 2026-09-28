@@ -184,9 +184,6 @@ describe("POST /items/:id/prices", () => {
       { price: -1.5, shop: "Lidl" },
       { price: "1.99", shop: "Lidl" },
       { shop: "Lidl" },
-      { price: 1.99, shop: "" },
-      { price: 1.99, shop: "   " },
-      { price: 1.99 },
       { price: 1.99, shop: "Lidl", observedAt: "yesterday" },
     ]) {
       const res = await addPrice(item.id, payload, ownerToken);
@@ -194,6 +191,46 @@ describe("POST /items/:id/prices", () => {
       expect(res.json().error.code).toBe("VALIDATION_ERROR");
     }
     expect(observationsOf(item.id)).toHaveLength(0);
+  });
+
+  it('stores an observation without shop as shop "" (T44 DoD) and trims whitespace to ""', async () => {
+    const item = seedItem({ title: "Water" });
+    const omitted = await addPrice(item.id, { price: 0.89 }, ownerToken);
+    expect(omitted.statusCode).toBe(201);
+    expect(omitted.json()).toMatchObject({ price: 0.89, shop: "" });
+    expect(observationsOf(item.id)[0]).toMatchObject({ priceCents: 89, shop: "" });
+
+    // Whitespace-only shop trims to "" (empty = unknown), never rejected.
+    const blank = await addPrice(item.id, { price: 0.95, shop: "   " }, ownerToken);
+    expect(blank.statusCode).toBe(201);
+    expect(blank.json()).toMatchObject({ shop: "" });
+
+    // "" rows flow into history, detail, and the derived currentPrice.
+    const history = await getPrices(item.id, "", ownerToken);
+    expect(history.statusCode).toBe(200);
+    expect(history.json().observations).toEqual([
+      { price: 0.95, shop: "", observedAt: blank.json().observedAt },
+      { price: 0.89, shop: "", observedAt: omitted.json().observedAt },
+    ]);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/items/${item.id}`,
+      headers: bearer(viewerToken),
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().currentPrice).toMatchObject({ price: 0.95, shop: "" });
+    expect(detail.json().prices[0]).toMatchObject({ shop: "" });
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items`,
+      headers: bearer(viewerToken),
+    });
+    const row = (
+      list.json().items as Array<{ id: string; currentPrice: PriceObservation | null }>
+    ).find((entry) => entry.id === item.id);
+    expect(row?.currentPrice).toMatchObject({ price: 0.95, shop: "" });
   });
 
   it("rejects VIEWER and non-members with 403 and stores nothing", async () => {

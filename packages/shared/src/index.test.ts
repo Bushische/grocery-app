@@ -324,21 +324,35 @@ describe("user schemas (T31)", () => {
 });
 
 describe("price observation schemas", () => {
-  it("priceObservationSchema requires positive decimal price, shop, ISO date", () => {
+  it("priceObservationSchema requires positive decimal price and ISO date; shop may be empty (T44)", () => {
     const value = { price: 1.99, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" };
     expect(priceObservationSchema.parse(value)).toEqual(value);
+    expect(priceObservationSchema.parse({ ...value, shop: "" })).toEqual({
+      price: 1.99,
+      shop: "",
+      observedAt: "2026-09-25T10:00:00.000Z",
+    });
     expect(priceObservationSchema.safeParse({ ...value, price: 0 }).success).toBe(false);
     expect(priceObservationSchema.safeParse({ ...value, price: -1 }).success).toBe(false);
-    expect(priceObservationSchema.safeParse({ ...value, shop: "" }).success).toBe(false);
     expect(priceObservationSchema.safeParse({ ...value, observedAt: "yesterday" }).success).toBe(
       false,
     );
   });
 
-  it("createPriceObservationRequestSchema trims shop and makes observedAt optional", () => {
+  it('createPriceObservationRequestSchema trims shop, defaults it to "", and makes observedAt optional (T44)', () => {
     expect(createPriceObservationRequestSchema.parse({ price: 1.99, shop: " Lidl " })).toEqual({
       price: 1.99,
       shop: "Lidl",
+    });
+    // Shop omitted → trimmed empty string ("" means unknown, docs/API.md → Prices).
+    expect(createPriceObservationRequestSchema.parse({ price: 1.99 })).toEqual({
+      price: 1.99,
+      shop: "",
+    });
+    // Whitespace-only shop trims to "" rather than failing (T44).
+    expect(createPriceObservationRequestSchema.parse({ price: 1.99, shop: "  " })).toEqual({
+      price: 1.99,
+      shop: "",
     });
     expect(
       createPriceObservationRequestSchema.parse({
@@ -348,9 +362,6 @@ describe("price observation schemas", () => {
       }),
     ).toEqual({ price: 0.5, shop: "Rewe", observedAt: "2026-09-25T10:00:00.000Z" });
     expect(createPriceObservationRequestSchema.safeParse({ price: 0, shop: "Lidl" }).success).toBe(
-      false,
-    );
-    expect(createPriceObservationRequestSchema.safeParse({ price: 1.99, shop: "  " }).success).toBe(
       false,
     );
     expect(createPriceObservationRequestSchema.safeParse({ shop: "Lidl" }).success).toBe(false);

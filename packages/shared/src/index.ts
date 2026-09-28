@@ -160,18 +160,22 @@ export type CreateUserRequest = z.infer<typeof createUserRequestSchema>;
 
 // --- Prices (docs/API.md → Prices; docs/DATA_MODEL.md → priceObservations) ---
 
-/** Price observation as returned by the API — money as a decimal number (docs/API.md → Conventions). */
+/**
+ * Price observation as returned by the API — money as a decimal number
+ * (docs/API.md → Conventions). `shop` is `""` when unknown (docs/API.md →
+ * Prices: shop optional, may be empty).
+ */
 export const priceObservationSchema = z.object({
   price: z.number().positive(),
-  shop: z.string().min(1),
+  shop: z.string(),
   observedAt: isoDateTimeSchema,
 });
 export type PriceObservation = z.infer<typeof priceObservationSchema>;
 
-/** `POST /items/:id/prices` — `observedAt` is optional and defaults to server time. */
+/** `POST /items/:id/prices` — `observedAt` is optional and defaults to server time; shop optional (empty = unknown). */
 export const createPriceObservationRequestSchema = z.object({
   price: z.number().positive(),
-  shop: z.string().trim().min(1),
+  shop: z.string().trim().default(""),
   observedAt: isoDateTimeSchema.optional(),
 });
 export type CreatePriceObservationRequest = z.infer<typeof createPriceObservationRequestSchema>;

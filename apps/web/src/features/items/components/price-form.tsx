@@ -1,4 +1,3 @@
-import { titleSchema } from "@grocery/shared";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -15,10 +14,11 @@ const PRICE_MESSAGE = "Enter a price greater than 0.";
  * Form-level schema — `register("price", { valueAsNumber: true })` feeds RHF's
  * numeric conversion (an empty field yields NaN, rejected with a friendly
  * message); the wire body is re-validated by createPriceObservationRequestSchema.
+ * Shop is optional (T44): it is trimmed and submitted as "" when left empty.
  */
 const priceFormSchema = z.object({
   price: z.number({ message: PRICE_MESSAGE }).positive(PRICE_MESSAGE),
-  shop: titleSchema.min(1, "Enter a shop name."),
+  shop: z.string().trim(),
 });
 type PriceFormValues = z.infer<typeof priceFormSchema>;
 
@@ -65,13 +65,13 @@ export function PriceForm({ pending, error, onSave }: PriceFormProps) {
         </div>
         <div className="min-w-0 flex-1">
           <label htmlFor="price-shop" className={labelClassName}>
-            Shop
+            Shop (optional)
           </label>
           <input
             id="price-shop"
             {...register("shop")}
             type="text"
-            placeholder="e.g. Lidl"
+            placeholder="e.g. Tops"
             className={`mt-1 ${inputClassName}`}
           />
         </div>

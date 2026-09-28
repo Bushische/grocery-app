@@ -74,7 +74,10 @@ function PricePointRow({ point }: { point: PriceObservation }) {
       className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-gray-200"
     >
       <span className="font-semibold text-gray-900">{point.price.toFixed(2)}</span>
-      <span className="min-w-0 flex-1 truncate text-gray-700">{point.shop}</span>
+      {/* T44: shop "" means unknown — render the price only, no dangling label. */}
+      {point.shop !== "" ? (
+        <span className="min-w-0 flex-1 truncate text-gray-700">{point.shop}</span>
+      ) : null}
       <time dateTime={point.observedAt} className="shrink-0 text-gray-500">
         {formatObservationDate(point.observedAt)}
       </time>
