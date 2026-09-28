@@ -516,3 +516,17 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   `/items/:id` shows an editable category (listId from the payload); switching lists via the
   menu updates the URL; tests cover back-navigation and deep-link category edit.
 - **Dependencies:** T30, T18, T14.
+
+### T42 — Humanized age badge ("5m" / "19h" / "3d") *(UX fix)*
+- **Goal:** Fix: items younger than 24 h show "0d" (the badge is `floor(now − addedAt)` days,
+  so everything created today reads 0d) — the age should read naturally.
+- **Inputs:** docs/PROJECT.md (row badge "3d"), item-row.tsx, itemService.ts
+  (computeDaysInList — contract keeps integer days).
+- **Outputs:** the age badge derives from `item.addedAt` **client-side** and humanizes:
+  `< 60 min` → `5m`, `< 24 h` → `19h`, `≥ 24 h` → `3d` (whole days, same rounding as the
+  server); keep `daysInList` in the API DTO untouched (no contract change); the BOUGHT section
+  badge (if shown) uses the same helper; badge tooltip/aria-label uses the humanized text.
+- **Definition of Done:** a 1-hour-old item shows "1h" (not "0d"); a 3-day-old item shows "3d";
+  badge updates without reload is NOT required (static per load is fine) but tests pin the
+  three buckets; no API changes.
+- **Dependencies:** T16, T36.
