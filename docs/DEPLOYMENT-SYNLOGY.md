@@ -67,8 +67,9 @@ don't. Fine for a first smoke test; use §1–§2 for the real thing.
    ssh <your-ssh-user>@<nas-ip>
    sudo -i                                  # become root for the setup steps
    ls /volume1                              # confirm the volume path
-   mkdir -p /volume1/docker/grocery
-   chown <your-ssh-user>:users /volume1/docker/grocery   # or leave root-owned and use sudo
+   # (optional) a data folder on the volume — the compose project itself lives in
+   # ~/grocery (created by deploy.sh in §5); named volumes keep the app data.
+   mkdir -p /volume1/docker/grocery && chown <your-ssh-user>:users /volume1/docker/grocery
    # Allow non-root docker over SSH (deploy.sh pipes `docker save | ssh … docker load`):
    # DSM's docker socket is root-only; add your user to the docker group so the transfer
    # step doesn't need root. (Group appears as "docker" in DSM's group list after this.)
@@ -91,51 +92,79 @@ don't. Fine for a first smoke test; use §1–§2 for the real thing.
 On the **laptop** (arm64 images, same platform as the NAS):
 
 ```bash
-./scripts/build-images.sh                    # builds + tags grocery-api / grocery-web
-./scripts/deploy.sh <your-ssh-user>@<nas-ip>    # docker save | ssh docker load; images land on the NAS
-# it also copies docker-compose.prod.yml to the NAS at ~/grocery/ and prints the next steps
+./scripts/build-images.sh                       # builds + tags grocery-api / grocery-web
+./scripts/deploy.sh <your-ssh-user>@<nas-ip>    # docker save | ssh docker load
 ```
 
-Or manual: `docker save grocery-api grocery-web | ssh <your-ssh-user>@<nas-ip> docker load`.
+What `deploy.sh` does: loads both images into the NAS docker, **creates `~/grocery/` on the
+NAS** and copies `docker-compose.prod.yml` there, then prints the next steps. The compose
+project lives at `~/grocery` (= `/var/services/homes/<user>/grocery`) — not `/volume1`;
+named volumes keep the data, so the folder location doesn't matter.
+
+DSM PATH quirk: the docker CLI lives at **`/usr/local/bin/docker`** and is NOT on the PATH of
+non-interactive SSH commands — the script handles it; on the NAS use the full path too.
 
 ## 6. Compose project on the NAS
 
-1. `cd /volume1/docker/grocery` and create `.env`:
+SSH in: `ssh <your-ssh-user>@<nas-ip>` — everything below runs in `~/grocery`:
+
+1. **Generate a JWT secret on the laptop** (or any long random string):
    ```bash
-   JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")
-   # run the above on the LAPTOP, then paste the value here:
-   cat > .env << EOF
-   JWT_SECRET=<paste>
-   TUNNEL_TOKEN=<eyJ... from §3>
+   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+   ```
+2. **Create `~/grocery/.env` on the NAS**:
+   ```bash
+   cd ~/grocery
+   cat > .env << 'EOF'
+   JWT_SECRET=<paste from step 1>
+   TUNNEL_TOKEN=<eyJ… token from §3 step 3>
    CORS_ORIGIN=https://grocery.<your-domain>
-   WEB_PORT=8080
    EOF
    chmod 600 .env
    ```
-2. Copy `docker-compose.prod.yml` from the repo to the same folder
-   (`scp docker-compose.prod.yml <your-ssh-user>@<nas-ip>:/volume1/docker/grocery/`).
-3. Start:
+   (`WEB_PORT` is optional — 8080 is the default and what the tunnel routes to.)
+3. **Start:**
    ```bash
-   docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env up -d
-   docker compose -f docker-compose.prod.yml ps    # api + web + tunnel all (healthy)
+   /usr/local/bin/docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env up -d
+   /usr/local/bin/docker compose -f docker-compose.prod.yml ps
    ```
-   Healthchecks gate the order: api → web → tunnel. The tunnel service restart-loops until
-   the token is valid.
-4. **Boot persistence:** `restart: unless-stopped` + Container Manager autostart covers reboots.
-   Verify after a test reboot; if the stack doesn't come up, add a boot-up **Task Scheduler**
-   task (root): `cd /volume1/docker/grocery && docker compose -f docker-compose.prod.yml
-   --profile tunnel --env-file .env up -d`.
+   → api + web + tunnel all `(healthy)`. Healthchecks gate the order: api → web → tunnel.
+   The tunnel restart-loops until the token is valid.
+4. **Boot persistence:** `restart: unless-stopped` + Container Manager autostart covers
+   reboots. Verify after a test reboot; if the stack doesn't come up, add a boot-up
+   **Task Scheduler** task (root, "On boot-up"):
+   ```bash
+   cd /var/services/homes/<user>/grocery && /usr/local/bin/docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env up -d
+   ```
 
 > **Quick tunnel (§2b)** replaces `TUNNEL_TOKEN` with `command: tunnel --url http://web:8080`
 > in a one-off compose override — the URL is printed in `docker logs grocery-list-tunnel-1`.
 
 ## 7. First boot + first admin
 
-1. Open `https://grocery.<your-domain>` → you get the login page over HTTPS (cert is
-   Cloudflare's edge cert; browser → app is TLS end-to-end to the tunnel).
-2. Create the admin — `docs/DEPLOYMENT.md` §8 verbatim (hash with repo bcryptjs on the
-   laptop → INSERT via `docker compose exec api node -e` on the NAS).
-3. Log in → create lists/categories/users in the app (admin menu → Users).
+1. Open `https://grocery.<your-domain>` → login page over HTTPS (Cloudflare edge cert).
+2. **Create the first admin** (there is no register endpoint by design):
+   - On the **laptop**, hash the password (never paste a plain password):
+     ```bash
+     node -e "console.log(require('./apps/api/node_modules/bcryptjs').hashSync(process.argv[1], 10))" 'YOUR-PASSWORD'
+     # → $2b$10$...
+     ```
+   - On the **NAS** (safe while the api runs; busy_timeout guards the single-writer lock):
+     ```bash
+     cd ~/grocery
+     HASH='$2b$10$…'      # single-quoted so the $ signs stay literal
+     /usr/local/bin/docker compose -f docker-compose.prod.yml --env-file .env exec -T api node -e '
+       const db = require("better-sqlite3")("/data/grocery.db", { timeout: 5000 });
+       const [email, hash] = process.argv.slice(1);
+       db.prepare("INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)")
+         .run(require("node:crypto").randomBytes(16).toString("hex"), email, hash, "admin");
+       console.log("admin created:", email);
+       db.close();
+     ' "you@example.com" "$HASH"
+     ```
+3. Log in at `https://grocery.<your-domain>` with that email + password. Create everyone else
+   in the app as admin (**menu → Admin → Users**, `POST /users` — T32), and API tokens for
+   agents (menu → Admin → API tokens? — Settings, `POST /api/api-tokens`, `glc_…` shown once).
 4. Phone check (on **mobile data**, not Wi-Fi): open the URL, log in, install the PWA
    (Add to Home Screen), confirm offline shell + login-once.
 
@@ -154,8 +183,9 @@ Or manual: `docker save grocery-api grocery-web | ssh <your-ssh-user>@<nas-ip> d
 - Backups: `docs/DEPLOYMENT.md` §10 (daily SQLite `.backup` + weekly uploads tar via DSM
   Task Scheduler).
 - Upgrades: laptop `git pull && ./scripts/build-images.sh && ./scripts/deploy.sh <your-ssh-user>@<nas-ip>`
-  then on the NAS `docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env
-  up -d` (recreates on image change). **PWA note:** users must reload once (twice until T47's
+  then on the NAS in `~/grocery`:
+  `/usr/local/bin/docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env up -d`
+  (recreates on image change). **PWA note:** users must reload once (twice until T47's
   update-toast ships) to get the new shell.
 
 ## 10. Troubleshooting
