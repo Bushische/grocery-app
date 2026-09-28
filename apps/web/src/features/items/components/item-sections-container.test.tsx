@@ -141,7 +141,9 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     });
     expect(screen.getByText("Milk")).toBeInTheDocument();
     expect(screen.getByText("2x")).toBeInTheDocument();
-    expect(screen.getByLabelText("Milk: 3 days in list")).toHaveTextContent("3d");
+    // T42: badge text is the humanized client-derived age (multi-day-old seed → N d).
+    const milkBadge = screen.getByLabelText(/Milk: added \d+d ago/);
+    expect(milkBadge).toHaveTextContent(/^\d+d$/);
     expect(screen.getByTestId("handle-i1")).toBeInTheDocument();
     expect(screen.queryByTestId("handle-i3")).not.toBeInTheDocument();
   });
@@ -287,7 +289,8 @@ describe("ItemRow bought styling (docs/TASKS.md → T36)", () => {
     expect(title).toHaveClass("line-through", "text-gray-400");
     expect(title).not.toHaveClass("text-gray-900");
     expect(screen.getByText("500g")).toHaveClass("text-gray-400");
-    expect(screen.getByLabelText("Butter: 3 days in list")).toHaveClass("text-gray-400");
+    // T42: muted humanized badge on BOUGHT rows too.
+    expect(screen.getByLabelText(/Butter: added \d+d ago/)).toHaveClass("text-gray-400");
     const row = screen.getByTestId("item-row-i3");
     expect(row.querySelector("span[aria-hidden='true']")).toHaveClass("grayscale", "opacity-50");
     expect(row).toHaveStyle({ opacity: "0.7" });

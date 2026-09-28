@@ -2,6 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Item } from "@grocery/shared";
 import { useLongPress } from "../hooks/use-long-press";
+import { formatAgeBadge } from "../lib/age-badge";
 
 export interface ItemRowProps {
   item: Item;
@@ -30,6 +31,7 @@ export interface ItemRowProps {
  */
 export function ItemRow({ item, sortable, onMove, onOpenDetails }: ItemRowProps) {
   const bought = item.status === "BOUGHT";
+  const ageBadge = formatAgeBadge(item);
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({
       id: item.id,
@@ -97,14 +99,14 @@ export function ItemRow({ item, sortable, onMove, onOpenDetails }: ItemRowProps)
           ) : null}
         </span>
         <span
-          aria-label={`${item.title}: ${item.daysInList} days in list`}
+          aria-label={`${item.title}: added ${ageBadge} ago`}
           className={
             bought
               ? "shrink-0 self-center rounded-full bg-gray-50 px-2 py-1 text-xs text-gray-400"
               : "shrink-0 self-center rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500"
           }
         >
-          {item.daysInList}d
+          {ageBadge}
         </span>
       </button>
       {sortable ? (
