@@ -84,7 +84,8 @@ On the **laptop** (arm64 images, same platform as the NAS):
 
 ```bash
 ./scripts/build-images.sh                    # builds + tags grocery-api / grocery-web
-./scripts/deploy.sh <your-ssh-user>@<nas-ip>           # docker save | ssh docker load (see docs/DEPLOYMENT.md §4)
+./scripts/deploy.sh <your-ssh-user>@<nas-ip>    # docker save | ssh docker load; images land on the NAS
+# it also copies docker-compose.prod.yml to the NAS at ~/grocery/ and prints the next steps
 ```
 
 Or manual: `docker save grocery-api grocery-web | ssh <your-ssh-user>@<nas-ip> docker load`.
