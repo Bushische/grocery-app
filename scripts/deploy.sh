@@ -32,6 +32,8 @@ for tag in "$API_TAG" "$WEB_TAG"; do
 done
 
 echo ">>> transferring compose file"
+# The target dir must exist (scp does not create it); mkdir is idempotent.
+ssh "$NAS_HOST" 'mkdir -p ~/grocery'
 # -O forces the legacy scp protocol: DSM 7's sshd frequently has the sftp
 # subsystem disabled ("subsystem request failed on channel 0").
 scp -O "$COMPOSE_FILE" "$NAS_HOST:grocery/$COMPOSE_FILE"
