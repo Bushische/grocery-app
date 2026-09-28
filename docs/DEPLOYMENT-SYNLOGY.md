@@ -69,8 +69,16 @@ don't. Fine for a first smoke test; use §1–§2 for the real thing.
    ls /volume1                              # confirm the volume path
    mkdir -p /volume1/docker/grocery
    chown <your-ssh-user>:users /volume1/docker/grocery   # or leave root-owned and use sudo
-   exit                                     # back to your user
+   # Allow non-root docker over SSH (deploy.sh pipes `docker save | ssh … docker load`):
+   # DSM's docker socket is root-only; add your user to the docker group so the transfer
+   # step doesn't need root. (Group appears as "docker" in DSM's group list after this.)
+   synogroup --add docker <your-ssh-user>
+   chown root:docker /var/run/docker.sock
+   exit                                     # back to your user; re-login for the group to apply
    ```
+   > On DSM 7.2+ Container Manager, the `docker` group may already exist — `synogroup
+   > --add docker <user>` then just **adds your user to it**. Verify with `id <user>` after
+   > re-login: `docker` must appear in groups.
    - If `sudo` says your user is not in the sudoers/administrators group: DSM → **Control
      Panel → Users → your user → Edit → check "administrators"** (SSH users must be in the
      administrators group to sudo).
@@ -160,3 +168,4 @@ Or manual: `docker save grocery-api grocery-web | ssh <your-ssh-user>@<nas-ip> d
 | Login works on LAN, fails via tunnel | `CORS_ORIGIN` mismatch with the tunnel hostname |
 | Uploads → 500 EACCES | volume owned by root (pre-T21 creation) → `docker run --rm -v grocery-list_uploads:/d alpine chown -R 100:101 /d` |
 | UI stale after deploy | service worker precache — reload twice (T47 will add a toast) |
+| `permission denied … /var/run/docker.sock` over SSH | your user is not in the **docker** group → `sudo synogroup --add docker <user>` then `sudo chown root:docker /var/run/docker.sock` and re-login (see §4) |
