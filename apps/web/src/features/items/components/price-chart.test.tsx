@@ -76,21 +76,26 @@ describe("PriceChart (T28: reserved layout space + placeholders)", () => {
     const [yMin, yMax] = range(null, 1.99, 2.49);
     expect(yMin).toBeCloseTo(1.74, 10);
     expect(yMax).toBeCloseTo(2.74, 10);
-    // oldest → newest on the X axis
+    // oldest → newest on the X axis (chart order; rows below pin T45's
+    // newest-first legend order separately)
     expect(data[1]).toEqual([2.49, 1.99]);
   });
 
-  it("labels every point below the chart (price + shop + date)", async () => {
+  it("orders legend rows newest-first, independent of the chart's X axis (T45)", async () => {
     render(<PriceChart observations={[observation(NEW, 1.99), observation(OLD, 2.49, "Netto")]} />);
     await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(1));
     const rows = screen.getAllByTestId("price-point");
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent("2.49");
-    expect(rows[0]).toHaveTextContent("Netto");
-    expect(rows[0]).toHaveTextContent("20 Sep 2026");
-    expect(rows[1]).toHaveTextContent("1.99");
-    expect(rows[1]).toHaveTextContent("Lidl");
-    expect(rows[1]).toHaveTextContent("25 Sep 2026");
+    // Top row = the most fresh price (API order, docs/API.md → Prices).
+    expect(rows[0]).toHaveTextContent("1.99");
+    expect(rows[0]).toHaveTextContent("Lidl");
+    expect(rows[0]).toHaveTextContent("25 Sep 2026");
+    expect(rows[1]).toHaveTextContent("2.49");
+    expect(rows[1]).toHaveTextContent("Netto");
+    expect(rows[1]).toHaveTextContent("20 Sep 2026");
+    // Chart X axis still runs left→right in time (oldest → newest).
+    const [, data] = uPlotCtor.mock.calls[0] as [unknown, number[][], unknown];
+    expect(data[1]).toEqual([2.49, 1.99]);
   });
 
   it('renders an unknown shop ("") as price + date only — no dangling label (T44 DoD)', async () => {
@@ -100,11 +105,11 @@ describe("PriceChart (T28: reserved layout space + placeholders)", () => {
     await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(1));
     const rows = screen.getAllByTestId("price-point");
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent("2.49");
-    expect(rows[0]).toHaveTextContent("Tops");
+    expect(rows[1]).toHaveTextContent("2.49");
+    expect(rows[1]).toHaveTextContent("Tops");
     // Unknown shop: only the price and the date, nothing in between.
-    expect(rows[1]).toHaveTextContent("1.99");
-    expect(rows[1]).toHaveTextContent("25 Sep 2026");
-    expect(rows[1].textContent).toBe("1.9925 Sep 2026");
+    expect(rows[0]).toHaveTextContent("1.99");
+    expect(rows[0]).toHaveTextContent("25 Sep 2026");
+    expect(rows[0].textContent).toBe("1.9925 Sep 2026");
   });
 });

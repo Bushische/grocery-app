@@ -214,11 +214,12 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(1));
     expect(chartData()[1]).toEqual([1.99, 2.5]);
     await waitFor(() => expect(pricePoints()).toHaveLength(2));
+    // T45: legend rows are newest-first — the just-added price sits on top.
     const points = pricePoints();
-    expect(points[0]).toHaveTextContent("1.99");
-    expect(points[0]).toHaveTextContent("Lidl");
-    expect(points[1]).toHaveTextContent("2.50");
-    expect(points[1]).toHaveTextContent("Netto");
+    expect(points[0]).toHaveTextContent("2.50");
+    expect(points[0]).toHaveTextContent("Netto");
+    expect(points[1]).toHaveTextContent("1.99");
+    expect(points[1]).toHaveTextContent("Lidl");
 
     // T28: the chart lives below the price+shop form, in its own reserved
     // space (fixed height, positioned, clipped — cannot overlap the inputs).
@@ -274,14 +275,14 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
         shop: "",
       }),
     );
-    // The refetched history flows into the legend (rows render oldest → newest,
-    // chart order — T45 flips this to API order): the new point renders only
-    // price + date — no dangling shop label.
+    // The refetched history flows into the legend (T45: rows render in API
+    // order, newest first): the new point renders only price + date — no
+    // dangling shop label.
     await waitFor(() => expect(pricePoints()).toHaveLength(2));
     const points = pricePoints();
-    expect(points[0]).toHaveTextContent("1.99");
-    expect(points[0]).toHaveTextContent("Lidl");
-    expect(points[1]?.textContent).toBe("1.2025 Sep 2026");
+    expect(points[0]?.textContent).toBe("1.2025 Sep 2026");
+    expect(points[1]).toHaveTextContent("1.99");
+    expect(points[1]).toHaveTextContent("Lidl");
   });
 
   it("round-trips an image (DoD): pick → client downscale → multipart POST → stored /static URL", async () => {

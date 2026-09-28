@@ -95,7 +95,7 @@ function PricePointRow({ point }: { point: PriceObservation }) {
  * canvases can never overlap the price form above or anything below it.
  */
 export function PriceChart({ observations }: { observations: PriceObservation[] }) {
-  const { xs, ys, points } = useMemo(() => buildPriceChartData(observations), [observations]);
+  const { xs, ys } = useMemo(() => buildPriceChartData(observations), [observations]);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -157,7 +157,7 @@ export function PriceChart({ observations }: { observations: PriceObservation[] 
     };
   }, [xs, ys]);
 
-  if (points.length === 0) {
+  if (observations.length === 0) {
     return (
       <div data-testid="price-chart-placeholder">
         <p className="text-sm text-gray-500">No prices recorded yet.</p>
@@ -167,11 +167,11 @@ export function PriceChart({ observations }: { observations: PriceObservation[] 
 
   // A single point degenerates into a zero-span x scale — show its label
   // cleanly instead of a broken chart.
-  if (points.length === 1) {
+  if (observations.length === 1) {
     return (
       <div data-testid="price-chart-placeholder">
         <ul aria-label="Price points" className="space-y-1">
-          <PricePointRow point={points[0] as PriceObservation} />
+          <PricePointRow point={observations[0] as PriceObservation} />
         </ul>
         <p className="mt-2 text-sm text-gray-500">
           Add more prices to see the price history chart.
@@ -188,8 +188,11 @@ export function PriceChart({ observations }: { observations: PriceObservation[] 
         className="relative w-full overflow-hidden"
         style={{ height: CHART_HEIGHT }}
       />
+      {/* T45: legend rows follow the API order (newest first, docs/API.md →
+          Prices) — NOT the chart-reversed `points`; the canvas keeps its
+          oldest→newest left→right X axis. */}
       <ul aria-label="Price points" className="mt-2 space-y-1">
-        {points.map((point) => (
+        {observations.map((point) => (
           <PricePointRow key={`${point.observedAt}-${point.shop}-${point.price}`} point={point} />
         ))}
       </ul>
