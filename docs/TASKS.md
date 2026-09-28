@@ -554,3 +554,24 @@ Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `d
   limited to this category; title/qty fields per the main add flow; tests for create, reactivate,
   category-scoping, VIEWER absence.
 - **Dependencies:** T19, T26, T29.
+
+### T44 — Price observation: shop optional *(contract change)*
+- **Goal:** Shop is required today ("validates price > 0, shop non-empty") — users don't always
+  know/care which shop the price is from. Make it optional.
+- **Inputs:** docs/API.md (Prices), docs/DATA_MODEL.md (priceObservations), T11 (prices API),
+  T18 (price form + chart labels).
+- **Outputs (one task — the contract, shared schemas, db and UI together):**
+  - contracts: docs/DATA_MODEL.md — `priceObservations.shop` becomes nullable (`shop: text` no
+    `notNull`); docs/API.md — request `shop?` (optional), response/DTO `shop: string | null`;
+    `currentPrice.shop` nullable.
+  - `packages/shared`: `createPriceObservationRequestSchema` — shop optional (absent/empty →
+    null, trim otherwise); `priceObservationSchema` / `itemSchema.currentPrice` allow null shop.
+  - api: drop the non-empty validation; store null when absent; DTO unchanged otherwise; drizzle
+    migration for the nullable column (existing rows keep their shops).
+  - web: PriceForm — shop input optional (label "Shop (optional)", no required-field error);
+    PriceChart/point labels render just the price when shop is null (no "undefined"/empty dash);
+    history rows similar.
+- **Definition of Done:** POST prices without shop → 201, observation persisted with null shop,
+  appears in history + item.currentPrice; with shop → unchanged; chart + history render both
+  cases cleanly; migration applies to a populated db; tests cover both; lint+test green.
+- **Dependencies:** T11, T18, T19 (touch order irrelevant but follows the feature line).
