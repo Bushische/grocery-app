@@ -1,5 +1,8 @@
 # Tasks
 
+> **ARCHIVE (frozen):** T1–T46 specs below are kept for history. All new work uses one file
+> per task in `Tasks/TASK_<ID>.md` — see `Tasks/README.md`. Do not extend this file.
+
 26 vertical tasks. Each is self-sufficient: implementable, testable, and mergeable on its own.
 Stack and contracts are defined in `docs/PROJECT.md`, `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`,
 `docs/API.md`, `docs/CONVENTIONS.md`.

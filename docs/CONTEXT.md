@@ -73,8 +73,11 @@ and AI agents (scoped `glc_` tokens).
 ## Workflow (the loop)
 - One task per fresh agent session; agent never commits/branches — the orchestrator
   (`scripts/run-next-task.sh`) verifies then makes exactly one commit `feat(Tn): title`.
-- Agent updates ONLY its own log row + appends one Session-notes line.
-- Queue: first PENDING row in docs/EXECUTION_LOG.md; specs in docs/TASKS.md; contracts in
-  DATA_MODEL/API.md are frozen — changing them requires updating packages/shared in the same
-  task.
+- Agent context budget: read docs/CONTEXT.md + its own `Tasks/TASK_<ID>.md`; contracts
+  (DATA_MODEL/API.md) only when the task touches API/DB shapes; another task's
+  `Tasks/EXECUTION_LOG_<ID>.md` only to check a dependency's result. Never read
+  `docs/TASKS.md` / `docs/EXECUTION_LOG.md` (frozen T1–T46 archive) or scan `Tasks/`.
+- Agent updates ONLY its own `Tasks/EXECUTION_LOG_<ID>.md` (status + one ≤200-char note).
+- Queue: first non-DONE spec in `Tasks/` (version-sorted ID order, `BLOCKED` skipped);
+  `PENDING` = spec exists with no log file yet.
 - Verify cheaply during the edit loop (touched files only), full gate once at the end.

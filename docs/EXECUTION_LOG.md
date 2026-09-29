@@ -1,5 +1,8 @@
 # Execution Log
 
+> **ARCHIVE (frozen):** rows T1–T46 below are kept for history. All new work logs to one file
+> per task in `Tasks/EXECUTION_LOG_<ID>.md` — see `Tasks/README.md`. Do not extend this file.
+
 Single source of truth for progress. The orchestrator (`scripts/run-next-task.sh`) and the
 execution prompt in `docs/EXECUTION_PROMPT.md` read and update this file.
 

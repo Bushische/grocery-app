@@ -81,3 +81,55 @@ if (problems.length) fail(problems);
 console.log(
   `INTEGRITY: ok — ${logRows.size} log rows, ${tasksSpecs.length} task specs, all consistent`,
 );
+
+// --- New model: Tasks/TASK_<ID>.md + Tasks/EXECUTION_LOG_<ID>.md (one file per task)
+import { readdirSync, existsSync } from "node:fs";
+const newProblems = [];
+const newIds = new Set();
+if (existsSync(join(root, "Tasks"))) {
+  const files = readdirSync(join(root, "Tasks"));
+  for (const f of files) {
+    const m = f.match(/^TASK_(T\d+)\.md$/);
+    if (!m) continue;
+    const id = m[1];
+    if (newIds.has(id)) newProblems.push(`Tasks: duplicate spec for ${id}`);
+    newIds.add(id);
+    const body = read(`Tasks/${f}`);
+    if (!new RegExp(`^#\\s+${id}\\b`, "m").test(body)) {
+      newProblems.push(`Tasks/${f}: first heading must be "# ${id} — <title>"`);
+    }
+    if (!/Definition of Done/.test(body)) {
+      newProblems.push(`Tasks/${f}: missing Definition of Done`);
+    }
+  }
+  let newInProgress = 0;
+  for (const f of files) {
+    const m = f.match(/^EXECUTION_LOG_(T\d+)\.md$/);
+    if (!m) continue;
+    const id = m[1];
+    if (!newIds.has(id)) {
+      newProblems.push(`Tasks/${f}: no matching TASK_${id}.md`);
+      continue;
+    }
+    const body = read(`Tasks/${f}`);
+    const st = (body.match(/^-\s*Status:\s*(\S+)/m) || [])[1] ?? "";
+    if (!VALID_STATUSES.has(st)) {
+      newProblems.push(`Tasks/${f}: unknown Status "${st}"`);
+    }
+    if (body.match(/^-\s*Task:\s*(\S+)/m)?.[1] !== id) {
+      newProblems.push(`Tasks/${f}: "- Task:" must be "${id}"`);
+    }
+    if (st === "DONE" && !(body.match(/^-\s*Date:\s*(\S+)/m) || [])[1]?.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      newProblems.push(`Tasks/${f}: DONE without a YYYY-MM-DD Date`);
+    }
+    if (st === "IN_PROGRESS") newInProgress++;
+  }
+  if (newInProgress > 1) {
+    newProblems.push(`Tasks: multiple IN_PROGRESS logs (${newInProgress})`);
+  }
+}
+
+if (newProblems.length) fail(newProblems);
+if (existsSync(join(root, "Tasks"))) {
+  console.log(`INTEGRITY: ok — ${newIds.size} per-task spec(s) in Tasks/, all consistent`);
+}
