@@ -108,13 +108,13 @@ export const pwaWorkbox: NonNullable<VitePWAOptions["workbox"]> = {
 
 /**
  * vite-plugin-pwa options wired in vite.config.ts:
- * - autoUpdate: a freshly deployed service worker activates immediately
- *   (skipWaiting + clientsClaim) — no update prompt to babysit.
+ * - prompt: a freshly deployed service worker waits until the user taps
+ *   Refresh in the update toast (T47) — no silent double-reload confusion.
  * - dev SW disabled: the vite dev server already proxies /api and /static;
  *   an extra SW layer there only muddies debugging.
  */
 export const pwaPluginOptions: Partial<VitePWAOptions> = {
-  registerType: "autoUpdate",
+  registerType: "prompt",
   manifest: pwaManifest,
   workbox: pwaWorkbox,
   devOptions: { enabled: false },
