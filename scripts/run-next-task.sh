@@ -3,16 +3,22 @@
 # New model: one spec file per task (Tasks/TASK_<ID>.md), one log file per executed
 # task (Tasks/EXECUTION_LOG_<ID>.md). PENDING = spec exists, no log file yet.
 # Usage:
-#   ./scripts/run-next-task.sh          # next unfinished task, one shot
+#   ./scripts/run-next-task.sh          # next unfinished task, one shot (default model: Muse Spark)
 #   ./scripts/run-next-task.sh T48      # (re)execute a specific task
 #   ./scripts/run-next-task.sh --loop   # loop until failure or all tasks DONE
 #   ./scripts/run-next-task.sh --list   # show queue with statuses, no execution
-#   OPENCODE_MODEL=openrouter/z-ai/glm-5.3-flash ./scripts/run-next-task.sh   # default model
+# Model selection (precedence: flag > $OPENCODE_MODEL > default):
+#   ./scripts/run-next-task.sh --deepseek            # DeepSeek shortcut
+#   ./scripts/run-next-task.sh --spark T48           # Muse Spark shortcut (the default)
+#   ./scripts/run-next-task.sh --model <id> --loop   # any opencode model id
+#   OPENCODE_MODEL=<id> ./scripts/run-next-task.sh   # via environment
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 TASKS_DIR="Tasks"
-MODEL="${OPENCODE_MODEL:-openrouter/z-ai/glm-5.3-flash}"
+MODEL_DEFAULT_SPARK="opencode/muse-spark-1.3-contributor-free"
+MODEL_DEEPSEEK="openrouter/deepseek/deepseek-chat"
+MODEL="${OPENCODE_MODEL:-$MODEL_DEFAULT_SPARK}"
 
 log_file() { # <task-id> -> path
   echo "$TASKS_DIR/EXECUTION_LOG_$1.md"
@@ -215,7 +221,25 @@ Finish with a short report (max 5 bullets): what was built, test results, anythi
 }
 
 main() {
+  # Leading model flags (flag > $OPENCODE_MODEL > default).
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --model)
+        [ $# -ge 2 ] || { echo "[!] --model needs a model id"; exit 1; }
+        MODEL="$2"; shift 2
+        ;;
+      --deepseek)
+        MODEL="$MODEL_DEEPSEEK"; shift
+        ;;
+      --spark)
+        MODEL="$MODEL_DEFAULT_SPARK"; shift
+        ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
   local arg="${1:-}"
+  echo "==> Model: $MODEL"
   case "$arg" in
     --loop)
       while :; do
@@ -238,7 +262,7 @@ main() {
       run_one "$arg"
       ;;
     *)
-      echo "Usage: $0 [--loop | --list | Tn]  (e.g. $0 T48, $0 --list)"
+      echo "Usage: $0 [--model <id> | --deepseek | --spark] [--loop | --list | Tn]  (e.g. $0 --deepseek T48, $0 --loop)"
       exit 1
       ;;
   esac
