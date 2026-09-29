@@ -38,6 +38,7 @@
     "react-hook-form": "^7",
     "react-router-dom": "^7",
     "uplot": "^1.6.32",
+    "workbox-window": "^7.3.0",
     "zod": "^4.6.5",
     "zustand": "^5"
   }

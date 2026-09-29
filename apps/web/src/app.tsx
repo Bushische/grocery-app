@@ -6,87 +6,92 @@ import { CategoryItemsPage } from "./features/categories/pages/category-items-pa
 import { ItemDetailsPage } from "./features/items/pages/item-details-page";
 import { ListsPage } from "./features/lists/pages/lists-page";
 import { MembersPage } from "./features/members/pages/members-page";
+import { UpdateToast } from "./features/pwa/components/update-toast";
 import { UsersPage } from "./features/users/pages/users-page";
 
 export function App() {
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={
-          <RedirectIfAuthenticated>
-            <LoginPage />
-          </RedirectIfAuthenticated>
-        }
-      />
-      <Route
-        path="/"
-        element={
-          <RequireAuth>
-            <ListsPage />
-          </RequireAuth>
-        }
-      />
-      {/* T41: the selected list lives in the URL — `/` redirects to the first list. */}
-      <Route
-        path="/lists/:listId"
-        element={
-          <RequireAuth>
-            <ListsPage />
-          </RequireAuth>
-        }
-      />
-      {/* T41: the canonical details route — the owning list comes from the URL. */}
-      <Route
-        path="/lists/:listId/items/:itemId"
-        element={
-          <RequireAuth>
-            <ItemDetailsPage />
-          </RequireAuth>
-        }
-      />
-      {/* Legacy deep links (old bookmarks/history) resolve their list from the payload. */}
-      <Route
-        path="/items/:itemId"
-        element={
-          <RequireAuth>
-            <ItemDetailsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/lists/:listId/categories"
-        element={
-          <RequireAuth>
-            <CategoriesPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/lists/:listId/members"
-        element={
-          <RequireAuth>
-            <MembersPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/categories/:categoryId"
-        element={
-          <RequireAuth>
-            <CategoryItemsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/users"
-        element={
-          <RequireAuth>
-            <UsersPage />
-          </RequireAuth>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            <RedirectIfAuthenticated>
+              <LoginPage />
+            </RedirectIfAuthenticated>
+          }
+        />
+        <Route
+          path="/"
+          element={
+            <RequireAuth>
+              <ListsPage />
+            </RequireAuth>
+          }
+        />
+        {/* T41: the selected list lives in the URL — `/` redirects to the first list. */}
+        <Route
+          path="/lists/:listId"
+          element={
+            <RequireAuth>
+              <ListsPage />
+            </RequireAuth>
+          }
+        />
+        {/* T41: the canonical details route — the owning list comes from the URL. */}
+        <Route
+          path="/lists/:listId/items/:itemId"
+          element={
+            <RequireAuth>
+              <ItemDetailsPage />
+            </RequireAuth>
+          }
+        />
+        {/* Legacy deep links (old bookmarks/history) resolve their list from the payload. */}
+        <Route
+          path="/items/:itemId"
+          element={
+            <RequireAuth>
+              <ItemDetailsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/lists/:listId/categories"
+          element={
+            <RequireAuth>
+              <CategoriesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/lists/:listId/members"
+          element={
+            <RequireAuth>
+              <MembersPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/categories/:categoryId"
+          element={
+            <RequireAuth>
+              <CategoryItemsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            <RequireAuth>
+              <UsersPage />
+            </RequireAuth>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      {/* T47: app-wide SW update prompt — floats above the bottom input bar. */}
+      <UpdateToast />
+    </>
   );
 }

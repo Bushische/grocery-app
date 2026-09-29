@@ -126,6 +126,9 @@ importers:
       uplot:
         specifier: ^1.6.32
         version: 1.6.32
+      workbox-window:
+        specifier: ^7.3.0
+        version: 7.4.1
       zod:
         specifier: ^4.6.5
         version: 4.6.5

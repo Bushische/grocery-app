@@ -120,8 +120,8 @@ describe("app shell (T24.5 DoD: loads shell offline, updates take over)", () => 
     expect(denied("/items/i1")).toBe(false);
   });
 
-  it("auto-updates the service worker and keeps it out of the dev server", () => {
-    expect(pwaPluginOptions.registerType).toBe("autoUpdate");
+  it("prompts for service-worker updates and keeps it out of the dev server", () => {
+    expect(pwaPluginOptions.registerType).toBe("prompt");
     expect(pwaPluginOptions.devOptions?.enabled).toBe(false);
   });
 });
