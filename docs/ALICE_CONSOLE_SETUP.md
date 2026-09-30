@@ -73,10 +73,26 @@ Known console quirks:
 
 ## 4. Publish
 
+Skill record to fill in the console (tab **Публикация**; name must be unique
+in the store):
+
+| Field | Value |
+|---|---|
+| Name | `Grocery List` |
+| Category | Покупки (shopping) |
+| Description | Голосовой помощник для списка покупок: показывает, что нужно купить, добавляет товары и отмечает купленное. Требуется привязка аккаунта. |
+| Activation phrases | `запусти навык список покупок`, `что купить`, `добавь молоко` |
+| Icon | 512×512 PNG (app icon, no transparency) |
+| Webhook | `https://grocery.<your-domain>/api/alice/webhook` (from the table above) |
+
 Required before moderation (~3 days): activation phrases, category, description, icon.
 Checklist: linking works from a fresh account; unlinked users get the button (never
 silence); surfaces without `account_linking` get a graceful message; TTS ≤ 1024 chars;
-no crashes on unexpected phrases (fallback). Then submit for review in the console.
+no crashes on unexpected phrases (fallback). Covered by the automated simulator
+pass (`apps/api/src/alice/simulator.test.ts`: link → welcome → add → list → buy →
+unbuy + revoke/relink, every turn protocol-valid and < 1 s locally, leaving
+headroom for the tunnel inside Yandex's response limit). Then submit for review
+in the console (the submit button itself is manual).
 
 ## 5. Troubleshooting
 
