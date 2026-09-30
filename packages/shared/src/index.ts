@@ -341,6 +341,23 @@ export const IMAGE_UPLOAD_WEBP_QUALITY = 0.8;
 export const itemImageResponseSchema = z.object({ imageFilename: z.string().min(1) });
 export type ItemImageResponse = z.infer<typeof itemImageResponseSchema>;
 
+// --- OAuth provider for Alice account linking (docs/ALICE_PLAN.md → §2) ---
+
+/** OAuth client id pre-registered for the Yandex Alice skill. */
+export const OAUTH_CLIENT_ALICE = "alice";
+
+/** Scope granted to tokens issued for the Alice skill. */
+export const OAUTH_SCOPE_ALICE = "alice";
+
+/** Authorization-code TTL: 10 minutes, single-use (docs/ALICE_PLAN.md → §2). */
+export const OAUTH_CODE_TTL_SECONDS = 10 * 60;
+
+/** Access-token TTL: 30 days (docs/ALICE_PLAN.md → §2). */
+export const OAUTH_ACCESS_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/** Refresh-token TTL: 1 year (docs/ALICE_PLAN.md → §2). */
+export const OAUTH_REFRESH_TTL_SECONDS = 365 * 24 * 60 * 60;
+
 // --- API tokens (docs/API.md → API tokens; docs/TASKS.md → T13) ---
 
 /** Prefix of long-lived AI-agent tokens (docs/PROJECT.md → Auth). */

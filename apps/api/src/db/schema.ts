@@ -135,3 +135,56 @@ export const priceObservations = sqliteTable(
   },
   (t) => [index("prices_item_observed_idx").on(t.itemId, t.observedAt)],
 );
+
+// --- OAuth provider for Alice account linking (docs/ALICE_PLAN.md → §2) ---
+// Hash-only storage throughout (mirrors api_tokens): secrets, codes, and
+// tokens are sha256-hashed before persistence; plaintext is never stored.
+
+export const oauthClients = sqliteTable("oauth_clients", {
+  id: text("id").primaryKey(), // e.g. "alice"
+  secretHash: text("secret_hash").notNull(), // sha256 hex of the client secret
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+});
+
+export const oauthCodes = sqliteTable(
+  "oauth_codes",
+  {
+    id: text("id").primaryKey(), // cuid2
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(), // sha256 hex of the single-use code
+    scope: text("scope").notNull().default("alice"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(), // 10-min TTL
+    usedAt: integer("used_at", { mode: "timestamp" }), // set on redeem (single-use flag)
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+  },
+  (t) => [uniqueIndex("oauth_codes_hash_uq").on(t.codeHash)],
+);
+
+export const oauthTokens = sqliteTable(
+  "oauth_tokens",
+  {
+    id: text("id").primaryKey(), // cuid2
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull().default("alice"),
+    accessTokenHash: text("access_token_hash").notNull(), // sha256 hex (30-d TTL)
+    refreshTokenHash: text("refresh_token_hash").notNull(), // sha256 hex (1-y TTL)
+    accessExpiresAt: integer("access_expires_at", { mode: "timestamp" }).notNull(),
+    refreshExpiresAt: integer("refresh_expires_at", { mode: "timestamp" }).notNull(),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }), // set on rotate/revoke
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+  },
+  (t) => [
+    uniqueIndex("oauth_tokens_access_hash_uq").on(t.accessTokenHash),
+    uniqueIndex("oauth_tokens_refresh_hash_uq").on(t.refreshTokenHash),
+  ],
+);
