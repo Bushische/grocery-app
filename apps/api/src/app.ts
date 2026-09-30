@@ -7,6 +7,7 @@ import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { MAX_IMAGE_UPLOAD_BYTES } from "@grocery/shared";
 import Fastify, { type FastifyInstance } from "fastify";
+import { aliceWebhookRoutes } from "./alice/webhook";
 import type { AppConfig } from "./config";
 import { type Db, createDb, createSqlite } from "./db/client";
 import { oauthRoutes } from "./oauth/routes";
@@ -83,6 +84,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(itemRoutes);
   app.register(priceRoutes);
   app.register(searchRoutes);
+  app.register(aliceWebhookRoutes, { skillId: config.aliceSkillId });
 
   return app;
 }

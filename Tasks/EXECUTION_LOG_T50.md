@@ -9,3 +9,4 @@
 
 ## Session notes
 - 2026-09-30 | T50 | opencode/muse-spark-1.3-contributor-free | OAuth routes: authorize GET/POST + token POST, consent HTML, env client creds, 10 tests; gate green (519 tests).
+- 2026-09-30 | T50 | opencode/muse-spark-1.3-contributor-free | completed and committed (52c6c19)

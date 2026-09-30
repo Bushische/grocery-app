@@ -136,6 +136,20 @@ export const priceObservations = sqliteTable(
   (t) => [index("prices_item_observed_idx").on(t.itemId, t.observedAt)],
 );
 
+// --- Alice single-list binding (docs/ALICE_PLAN.md → §2, webhook section) ---
+// Alice operates on exactly ONE list per user, keyed by user so the binding
+// survives token rotation. Set on the first linked dialog turn (auto when the
+// user has exactly one accessible list, ask-once otherwise).
+export const aliceLinks = sqliteTable("alice_links", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  listId: text("list_id")
+    .notNull()
+    .references(() => groceryLists.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+});
+
 // --- OAuth provider for Alice account linking (docs/ALICE_PLAN.md → §2) ---
 // Hash-only storage throughout (mirrors api_tokens): secrets, codes, and
 // tokens are sha256-hashed before persistence; plaintext is never stored.
