@@ -1,6 +1,7 @@
 import type { AuthUser } from "@grocery/shared";
 import type { FastifyInstance } from "fastify";
 import { FastifyHttpError } from "../errors";
+import { handleAliceGrocery } from "./dialog";
 import { ensureAliceList, matchListChoice, setAliceLink } from "./links";
 import {
   ALICE_AWAITING_CHOICE_KEY,
@@ -30,7 +31,6 @@ const WELCOME_LINK_HINT =
   "Чтобы начать, привяжите аккаунт в приложении Яндекса — просто попросите что-нибудь из списка.";
 const HELP_TEXT =
   "Я умею показывать список покупок, добавлять товары, отмечать купленное и возвращать товары обратно в покупки. Например: «что купить» или «добавь молоко».";
-const FALLBACK_TEXT = "Извините, я не поняла. Спросите «помощь», чтобы узнать, что я умею.";
 const LINKED_WELCOME_TEXT =
   "Аккаунт привязан! Теперь я могу работать с вашим списком покупок. Спросите «помощь», чтобы узнать команды.";
 const NO_LINKING_SURFACE_TEXT =
@@ -147,9 +147,12 @@ function handlePrivateTurn(
       [ALICE_AWAITING_CHOICE_KEY]: true,
     });
   }
-  // Skeleton router (T52 adds grocery intents on the bound list): the user
-  // is resolved and the bound list passed the membership guard above.
-  return textAnswer(FALLBACK_TEXT);
+  // Grocery intents (T52) on the bound list; unknown phrasing clarifies.
+  return handleAliceGrocery(db, user.id, binding.listId, {
+    command: rawCommand,
+    nlu: body.request.nlu,
+    rawRequest: body.request,
+  });
 }
 
 /**
