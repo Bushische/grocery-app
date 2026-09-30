@@ -29,7 +29,9 @@ Our concrete endpoints (used below):
 2. Create a dialog → type **«Навык в Алисе»** (Skill in Alice).
 3. Skill name, e.g. `Grocery List` (must be unique in the store for publication).
 4. Tab **Настройки** → block **Backend** → **Webhook URL**: paste the webhook value
-   from the table above → **Save**.
+   from the table above → **Save**. No validation happens at this point — the backend
+   does NOT need to be live yet, so create the skill first and deploy after.
+   (Chicken-and-egg resolved: skill shell first → skill id → deploy → linking tab.)
 5. Tab **Общие сведения** (bottom of the page): copy the **skill id** → put it into
    server `.env` as `ALICE_SKILL_ID` and restart the api service. Our webhook rejects
    any request whose `session.skill_id` differs.
