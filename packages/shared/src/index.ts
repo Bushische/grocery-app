@@ -358,6 +358,64 @@ export const OAUTH_ACCESS_TTL_SECONDS = 30 * 24 * 60 * 60;
 /** Refresh-token TTL: 1 year (docs/ALICE_PLAN.md → §2). */
 export const OAUTH_REFRESH_TTL_SECONDS = 365 * 24 * 60 * 60;
 
+/** Redirect URI Yandex always uses during account linking (docs/ALICE_PLAN.md → §2). */
+export const YANDEX_BROKER_REDIRECT = "https://social.yandex.net/broker/redirect";
+
+/** Query of `GET /oauth/authorize` — Yandex opens this in a webview. */
+export const oauthAuthorizeQuerySchema = z.object({
+  response_type: z.literal("code"),
+  client_id: z.string().min(1),
+  redirect_uri: z.string().min(1),
+  scope: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+});
+export type OAuthAuthorizeQuery = z.infer<typeof oauthAuthorizeQuerySchema>;
+
+/** Body of `POST /oauth/authorize` — email login + consent confirmation. */
+export const oauthAuthorizeFormSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1),
+  client_id: z.string().min(1),
+  redirect_uri: z.string().min(1),
+  scope: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+});
+export type OAuthAuthorizeForm = z.infer<typeof oauthAuthorizeFormSchema>;
+
+/** Body of `POST /oauth/token` — both grant types Yandex uses. */
+export const oauthTokenRequestSchema = z
+  .object({
+    grant_type: z.enum(["authorization_code", "refresh_token"]),
+    code: z.string().min(1).optional(),
+    refresh_token: z.string().min(1).optional(),
+    redirect_uri: z.string().min(1).optional(),
+    client_id: z.string().min(1),
+    client_secret: z.string().min(1),
+  })
+  .superRefine((value, ctx) => {
+    if (value.grant_type === "authorization_code" && !value.code) {
+      ctx.addIssue({ code: "custom", message: "code is required", path: ["code"] });
+    }
+    if (value.grant_type === "refresh_token" && !value.refresh_token) {
+      ctx.addIssue({
+        code: "custom",
+        message: "refresh_token is required",
+        path: ["refresh_token"],
+      });
+    }
+  });
+export type OAuthTokenRequest = z.infer<typeof oauthTokenRequestSchema>;
+
+/** Response of `POST /oauth/token` — Yandex limits: ≤5000 chars total,
+ * tokens ≤2048 chars each, integer `expires_in`. */
+export const oauthTokenResponseSchema = z.object({
+  access_token: z.string().min(1).max(2048),
+  refresh_token: z.string().min(1).max(2048),
+  token_type: z.literal("Bearer"),
+  expires_in: z.number().int().positive(),
+});
+export type OAuthTokenResponse = z.infer<typeof oauthTokenResponseSchema>;
+
 // --- API tokens (docs/API.md → API tokens; docs/TASKS.md → T13) ---
 
 /** Prefix of long-lived AI-agent tokens (docs/PROJECT.md → Auth). */

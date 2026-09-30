@@ -9,6 +9,7 @@ import { MAX_IMAGE_UPLOAD_BYTES } from "@grocery/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "./config";
 import { type Db, createDb, createSqlite } from "./db/client";
+import { oauthRoutes } from "./oauth/routes";
 import { registerAuth } from "./plugins/auth";
 import { registerDb } from "./plugins/db";
 import { applyErrorHandling } from "./plugins/error-handler";
@@ -74,6 +75,7 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   registerAuth(app, config.jwtSecret);
   app.register(healthRoutes);
   app.register(authRoutes);
+  app.register(oauthRoutes);
   app.register(userRoutes);
   app.register(apiTokenRoutes);
   app.register(listRoutes);
