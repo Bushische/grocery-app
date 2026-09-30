@@ -50,7 +50,9 @@ function postAuthorize(
   }));
 }
 
-function postToken(values: Record<string, string>): ReturnType<FastifyInstance["inject"]> {
+function postToken(
+  values: Record<string, string>,
+): Promise<{ statusCode: number; json: () => unknown }> {
   const { payload, headers } = formPayload(values);
   return app.inject({ method: "POST", url: "/oauth/token", headers, payload });
 }

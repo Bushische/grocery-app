@@ -41,13 +41,14 @@ function consentPage(params: {
   error: string | null;
 }): string {
   const { clientId, redirectUri, scope, state, email, error } = params;
-  const hidden = [
-    ["client_id", clientId],
-    ["redirect_uri", redirectUri],
-    ["scope", scope],
-    ["state", state],
-  ]
-    .map(([name, value]) => `<input type="hidden" name="${name}" value="${escapeHtml(value)}" />`)
+  const hiddenFields: Array<{ name: string; value: string }> = [
+    { name: "client_id", value: clientId },
+    { name: "redirect_uri", value: redirectUri },
+    { name: "scope", value: scope },
+    { name: "state", value: state },
+  ];
+  const hidden = hiddenFields
+    .map(({ name, value }) => `<input type="hidden" name="${name}" value="${escapeHtml(value)}" />`)
     .join("\n    ");
   const alert = error ? `<p role="alert" style="color:#b91c1c">${escapeHtml(error)}</p>` : "";
   return `<!DOCTYPE html>
@@ -94,7 +95,7 @@ export async function oauthRoutes(app: FastifyInstance): Promise<void> {
     app.addContentTypeParser(
       "application/x-www-form-urlencoded",
       { parseAs: "string" },
-      (request, body, done) => {
+      (_request, body, done) => {
         try {
           const parsed: Record<string, string> = {};
           for (const [key, value] of new URLSearchParams(body as string)) {
