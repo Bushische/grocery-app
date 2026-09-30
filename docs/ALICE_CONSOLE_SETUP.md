@@ -35,6 +35,9 @@ Our concrete endpoints (used below):
 5. Tab **Общие сведения** (bottom of the page): copy the **skill id** → put it into
    server `.env` as `ALICE_SKILL_ID` and restart the api service. Our webhook rejects
    any request whose `session.skill_id` differs.
+   (Can't find the tab? The id is also the GUID in the console URL:
+   `dialogs.yandex.ru/developer/skills/<skill-id>/draft/...` — same UUID format
+   Yandex sends as `session.skill_id`.)
 
 ## 2. Account linking tab («Связка аккаунтов»)
 
