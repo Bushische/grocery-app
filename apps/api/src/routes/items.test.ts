@@ -878,7 +878,7 @@ describe("POST /items/:id/move", () => {
     });
   }
 
-  it("moves TO_BUY → BOUGHT: boughtAt = now, appended to the end of the bought section", async () => {
+  it("moves TO_BUY → BOUGHT: boughtAt = now, prepended to the top of the bought section", async () => {
     const listId = await createScratchList("Move To Bought");
     const other = otherCategoryOf(listId);
     // Whole seconds — timestamps are stored as unix epoch (timestamp mode).
@@ -906,23 +906,24 @@ describe("POST /items/:id/move", () => {
     expect(body).toMatchObject({
       id: a.id,
       status: "BOUGHT",
-      sortOrder: 6, // max(BOUGHT) 5 + 1
+      sortOrder: 0, // prepended to the top; the previous bought row shifts down
       daysInList: 3, // to_bought keeps addedAt — only boughtAt changes
     });
     const after = itemById(a.id);
     expect(after?.boughtAt?.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
     expect(after?.addedAt.getTime()).toBe(addedAt.getTime());
     expect(after?.usageCount).toBe(2); // usageCount only bumps on the to_buy direction
+    expect(itemById(old.id)?.sortOrder).toBe(6); // shifted down from 5
 
-    // Bought section order: [Old, Milk]; to_buy keeps Bread.
+    // Bought section order: [Milk, Old]; to_buy keeps Bread.
     const bought = await app.inject({
       method: "GET",
       url: `/lists/${listId}/items?status=bought`,
       headers: bearer(viewerToken),
     });
     expect((bought.json().items as Array<{ id: string }>).map((item) => item.id)).toEqual([
-      old.id,
       a.id,
+      old.id,
     ]);
     const toBuy = await app.inject({
       method: "GET",
@@ -932,8 +933,8 @@ describe("POST /items/:id/move", () => {
     expect((toBuy.json().items as Array<{ id: string }>).map((item) => item.id)).toEqual([b.id]);
   });
 
-  it("appends successive bought moves after the previous max sortOrder", async () => {
-    const listId = await createScratchList("Move Append Bought");
+  it("prepends successive bought moves so the most recent is on top", async () => {
+    const listId = await createScratchList("Move Prepend Bought");
     const other = otherCategoryOf(listId);
     const a = seedItem(listId, other.id, { title: "A", status: "TO_BUY", sortOrder: 0 });
     const b = seedItem(listId, other.id, { title: "B", status: "TO_BUY", sortOrder: 1 });
@@ -944,7 +945,8 @@ describe("POST /items/:id/move", () => {
 
     const second = await move(b.id, "bought");
     expect(second.statusCode).toBe(200);
-    expect(second.json().sortOrder).toBe(1);
+    expect(second.json().sortOrder).toBe(0); // prepended to the top
+    expect(itemById(a.id)?.sortOrder).toBe(1); // shifted down from 0
 
     const bought = await app.inject({
       method: "GET",
@@ -957,8 +959,30 @@ describe("POST /items/:id/move", () => {
         sortOrder: item.sortOrder,
       })),
     ).toEqual([
-      { id: a.id, sortOrder: 0 },
-      { id: b.id, sortOrder: 1 },
+      { id: b.id, sortOrder: 0 },
+      { id: a.id, sortOrder: 1 },
+    ]);
+  });
+
+  it("re-buying an already-BOUGHT item moves it to the top", async () => {
+    const listId = await createScratchList("Move Rebuy Top");
+    const other = otherCategoryOf(listId);
+    const a = seedItem(listId, other.id, { title: "A", status: "TO_BUY", sortOrder: 0 });
+    const b = seedItem(listId, other.id, { title: "B", status: "TO_BUY", sortOrder: 1 });
+
+    await move(a.id, "bought");
+    await move(b.id, "bought");
+    const rebuy = await move(a.id, "bought");
+    expect(rebuy.statusCode).toBe(200);
+
+    const bought = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=bought`,
+      headers: bearer(viewerToken),
+    });
+    expect((bought.json().items as Array<{ id: string }>).map((item) => item.id)).toEqual([
+      a.id,
+      b.id,
     ]);
   });
 

@@ -127,7 +127,7 @@ PATCH  /items/:id   { "title"?, "categoryId"?, "qtyText"? }   → 200 (EDITOR+)
 DELETE /items/:id                                              → 204 (EDITOR+)
 
 POST /items/:id/move   { "status": "bought" }                  → 200 item
-  to bought: boughtAt = now.
+  to bought: boughtAt = now, sortOrder = top (existing BOUGHT rows shift down, moved item takes 0).
   to to_buy: addedAt = now, boughtAt = null, usageCount+1, sortOrder = end.
 
 POST /items/:id/image  (multipart, form field "image", < 2 MB)

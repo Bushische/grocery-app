@@ -18,11 +18,12 @@ function splitSections(data: ItemsQueryData): { toBuy: Item[]; bought: Item[] } 
 
 /**
  * Optimistically toggles an item's status inside the `["items", listId]` cache
- * (buy/unbuy). The move endpoint appends to the end of the target section;
- * the server response (incl. recomputed daysInList / usageCount) is reconciled
- * on success via invalidation.
+ * (buy/unbuy). Buying prepends to the top of the BOUGHT section, un-buying
+ * appends to the end of TO_BUY (mirroring the server's moveTo); the server
+ * response (incl. recomputed daysInList / usageCount) is reconciled on
+ * success via invalidation.
  */
-function applyMove(
+export function applyMove(
   data: ItemsQueryData,
   itemId: string,
   target: "TO_BUY" | "BOUGHT",
@@ -34,12 +35,12 @@ function applyMove(
   const targetSection = without.filter((item) => item.status === target);
   const otherSection = without.filter((item) => item.status !== target);
   return {
-    // The moved item is appended to the end of its target section; the source
-    // section keeps its remaining rows in order (T36: no duplicated row).
+    // TO_BUY appends to the end of its section; BOUGHT prepends to the top.
+    // The source section keeps its remaining rows in order (T36: no duplicated row).
     items:
       target === "TO_BUY"
         ? [...targetSection, moved, ...otherSection]
-        : [...otherSection, ...targetSection, moved],
+        : [...otherSection, moved, ...targetSection],
   };
 }
 

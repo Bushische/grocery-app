@@ -352,18 +352,27 @@ function findFuzzyMatch(db: Db, listId: string, text: string): ItemRow | undefin
 
 /**
  * Applies one move direction to a fetched row (docs/API.md → Items): the item
- * is written into `target` and appended to the end of the target section.
+ * is written into `target`; to bought it is prepended to the top of the
+ * target section (existing BOUGHT rows shift down one slot, the moved item
+ * takes sortOrder 0, keeping sortOrder non-negative per the shared schema),
+ * to to_buy it is appended to the end (sortOrder = max+1).
  * to bought: boughtAt = now. to to_buy: addedAt = now, boughtAt = null,
  * usageCount+1, sortOrder = end. Shared by `moveItem` (T9) and smart-add's
  * BOUGHT re-activation.
  */
 function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
+  if (target === "BOUGHT") {
+    db.update(items)
+      .set({ sortOrder: sql`${items.sortOrder} + 1` })
+      .where(and(eq(items.listId, row.item.listId), eq(items.status, "BOUGHT")))
+      .run();
+  }
   const set: Partial<typeof items.$inferInsert> =
     target === "BOUGHT"
       ? {
           status: "BOUGHT",
           boughtAt: now,
-          sortOrder: highestSortOrder(db, row.item.listId, "BOUGHT") + 1,
+          sortOrder: 0,
         }
       : {
           status: "TO_BUY",
@@ -393,8 +402,10 @@ function activateIfBought(db: Db, row: ItemRow, now: Date): Item {
 
 /**
  * `POST /items/:id/move` (docs/API.md → Items): toggles the item's status
- * between TO_BUY and BOUGHT with the direction's timestamps/counters and
- * appends it to the end of the target section's sortOrder.
+ * between TO_BUY and BOUGHT with the direction's timestamps/counters; to
+ * BOUGHT prepends to the top of the bought section, to TO_BUY appends to the
+ * end of the to-buy section. Same-status moves apply unconditionally
+ * (re-buy moves the item to the top).
  */
 export function moveItem(db: Db, itemId: string, target: ItemStatus, now: Date = new Date()): Item {
   return db.transaction((tx) => {
