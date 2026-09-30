@@ -83,7 +83,7 @@ console.log(
 );
 
 // --- New model: Tasks/TASK_<ID>.md + Tasks/EXECUTION_LOG_<ID>.md (one file per task)
-import { readdirSync, existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 const newProblems = [];
 const newIds = new Set();
 if (existsSync(join(root, "Tasks"))) {
@@ -119,7 +119,10 @@ if (existsSync(join(root, "Tasks"))) {
     if (body.match(/^-\s*Task:\s*(\S+)/m)?.[1] !== id) {
       newProblems.push(`Tasks/${f}: "- Task:" must be "${id}"`);
     }
-    if (st === "DONE" && !(body.match(/^-\s*Date:\s*(\S+)/m) || [])[1]?.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    if (
+      st === "DONE" &&
+      !(body.match(/^-\s*Date:\s*(\S+)/m) || [])[1]?.match(/^\d{4}-\d{2}-\d{2}$/)
+    ) {
       newProblems.push(`Tasks/${f}: DONE without a YYYY-MM-DD Date`);
     }
     if (st === "IN_PROGRESS") newInProgress++;
