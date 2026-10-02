@@ -110,14 +110,18 @@ describe("app shell (T24.5 DoD: loads shell offline, updates take over)", () => 
         `missing ${ext}`,
       ).toBe(true);
     }
-    // SPA deep links resolve to the precached shell; /api and /static never do.
+    // SPA deep links resolve to the precached shell; /api, /static, and
+    // /oauth never do (T54: consent page must hit the network, not the shell).
     expect(pwaWorkbox.navigateFallback).toBe("index.html");
     const denylist = pwaWorkbox.navigateFallbackDenylist ?? [];
     const denied = (url: string) => denylist.some((re) => re.test(url));
     expect(denied("/api/lists")).toBe(true);
     expect(denied("/static/i1-abc.webp")).toBe(true);
+    expect(denied("/oauth/authorize?scope=alice&client_id=alice&state=x")).toBe(true);
+    expect(denied("/oauth/token")).toBe(true);
     expect(denied("/")).toBe(false);
     expect(denied("/items/i1")).toBe(false);
+    expect(denied("/lists/l1")).toBe(false);
   });
 
   it("prompts for service-worker updates and keeps it out of the dev server", () => {
