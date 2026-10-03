@@ -40,13 +40,11 @@ function formPayload(values: Record<string, string>): {
   };
 }
 
-function postAuthorize(
-  values: Record<string, string>,
-): Promise<{ status: number; location: string | undefined }> {
+function postAuthorize(values: Record<string, string>): Promise<{ status: number; body: string }> {
   const { payload, headers } = formPayload(values);
   return app.inject({ method: "POST", url: "/oauth/authorize", headers, payload }).then((res) => ({
     status: res.statusCode,
-    location: res.headers.location as string | undefined,
+    body: res.body,
   }));
 }
 
@@ -62,6 +60,13 @@ function codeFromLocation(location: string): { code: string; state: string | nul
   const code = target.searchParams.get("code");
   if (!code) throw new Error(`no code in redirect ${location}`);
   return { code, state: target.searchParams.get("state") };
+}
+
+/** Extracts the broker continue URL from the T55 interstitial page (unescapes `&amp;`). */
+function continueUrlFromBody(body: string): string {
+  const match = body.match(/href="([^"]+)"/);
+  if (!match) throw new Error("no continue link in authorize response");
+  return match[1].replaceAll("&amp;", "&");
 }
 
 beforeAll(async () => {
@@ -119,9 +124,11 @@ describe("OAuth link flow (login → code → tokens → refresh rotation)", () 
       scope: "alice",
       state,
     });
-    expect(authorized.status).toBe(302);
-    expect(authorized.location?.startsWith(`${YANDEX_BROKER_REDIRECT}?`)).toBe(true);
-    const { code, state: echoed } = codeFromLocation(authorized.location as string);
+    expect(authorized.status).toBe(200);
+    expect(authorized.body).toContain("Продолжить");
+    const location = continueUrlFromBody(authorized.body);
+    expect(location.startsWith(`${YANDEX_BROKER_REDIRECT}?`)).toBe(true);
+    const { code, state: echoed } = codeFromLocation(location);
     expect(echoed).toBe(state);
 
     const tokenRes = await postToken({
@@ -171,11 +178,28 @@ describe("OAuth link flow (login → code → tokens → refresh rotation)", () 
       redirect_uri: YANDEX_BROKER_REDIRECT,
       state,
     });
-    expect(authorized.status).toBe(302);
-    expect(codeFromLocation(authorized.location as string).state).toBe(state);
+    expect(authorized.status).toBe(200);
+    expect(codeFromLocation(continueUrlFromBody(authorized.body)).state).toBe(state);
   });
 
-  it("issues no code on a wrong password (401)", async () => {
+  it("serves the interstitial as HTML with link + auto-advance (T55 webview-proof)", async () => {
+    const { payload, headers } = formPayload({
+      email: USER.email,
+      password: USER.password,
+      client_id: CLIENT_ID,
+      redirect_uri: YANDEX_BROKER_REDIRECT,
+      scope: "alice",
+      state: "s5",
+    });
+    const res = await app.inject({ method: "POST", url: "/oauth/authorize", headers, payload });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.body).toContain('<meta http-equiv="refresh"');
+    expect(res.body).toContain("window.location.replace(");
+    expect(continueUrlFromBody(res.body)).toContain("code=");
+  });
+
+  it("re-renders the form as HTML on a wrong password (401, no code)", async () => {
     const authorized = await postAuthorize({
       email: USER.email,
       password: "wrong-password",
@@ -184,7 +208,8 @@ describe("OAuth link flow (login → code → tokens → refresh rotation)", () 
       state: "s2",
     });
     expect(authorized.status).toBe(401);
-    expect(authorized.location).toBeUndefined();
+    expect(authorized.body).toContain("Неверный email или пароль.");
+    expect(authorized.body).toContain('name="email"');
   });
 
   it("rejects a bad client secret with 401", async () => {
@@ -195,7 +220,7 @@ describe("OAuth link flow (login → code → tokens → refresh rotation)", () 
       redirect_uri: YANDEX_BROKER_REDIRECT,
       state: "s3",
     });
-    const { code } = codeFromLocation(authorized.location as string);
+    const { code } = codeFromLocation(continueUrlFromBody(authorized.body));
     const tokenRes = await postToken({
       grant_type: "authorization_code",
       code,
@@ -213,7 +238,7 @@ describe("OAuth link flow (login → code → tokens → refresh rotation)", () 
       redirect_uri: YANDEX_BROKER_REDIRECT,
       state: "s4",
     });
-    const { code } = codeFromLocation(authorized.location as string);
+    const { code } = codeFromLocation(continueUrlFromBody(authorized.body));
     const first = await postToken({
       grant_type: "authorization_code",
       code,

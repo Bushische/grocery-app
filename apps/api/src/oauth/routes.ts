@@ -73,6 +73,29 @@ function consentPage(params: {
 `;
 }
 
+/**
+ * Interstitial page after a successful login (T55): Yandex webviews/Custom Tabs
+ * swallow the automatic cross-origin navigation of a bare 302, so the redirect
+ * to the broker becomes a user-gesture navigation (tap "Продолжить") with
+ * meta-refresh + JS auto-advance for clients that allow it.
+ */
+function continuePage(target: string): string {
+  const safe = escapeHtml(target);
+  // JSON.stringify for the script context (quotes/backslashes), escaping `<`
+  // so a hostile `state` value cannot break out of the script block.
+  const js = JSON.stringify(target).replaceAll("<", "\\u003c");
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8" /><meta http-equiv="refresh" content="1;url=${safe}" /><title>Аккаунт подтвержден — Grocery List</title></head>
+<body>
+  <h1>Аккаунт подтвержден</h1>
+  <p>Нажмите «Продолжить», чтобы завершить привязку в Алисе.</p>
+  <p><a href="${safe}">Продолжить</a></p>
+  <script>window.location.replace(${js});</script>
+</body>
+</html>
+`;
+}
 function requireBrokerRedirectUri(redirectUri: string): void {
   if (redirectUri !== YANDEX_BROKER_REDIRECT) {
     throw new FastifyHttpError(400, "VALIDATION_ERROR", "Unsupported redirect_uri");
@@ -125,23 +148,49 @@ export async function oauthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/oauth/authorize", async (request, reply) => {
-    const body = oauthAuthorizeFormSchema.parse(request.body);
-    requireKnownClient(db, body.client_id);
-    requireBrokerRedirectUri(body.redirect_uri);
-    // 401 UNAUTHORIZED on unknown email or wrong password — no code is issued.
-    const user = await authenticate(db, body.email, body.password);
-    const { code } = issueAuthorizationCode(db, {
-      userId: user.id,
-      clientId: body.client_id,
-      scope: body.scope ?? OAUTH_SCOPE_ALICE,
-    });
-    const target = new URL(body.redirect_uri);
-    target.searchParams.set("code", code);
-    // `state` is echoed verbatim so Yandex can match the linking session.
-    if (body.state !== undefined && body.state !== "") {
-      target.searchParams.set("state", body.state);
+    // User errors (wrong email/password, bad field) re-render the consent form
+    // as HTML (T55): a JSON error body is invisible inside Yandex webviews and
+    // looks like a dead button. Only non-form errors escape to the JSON handler.
+    const raw = (request.body ?? {}) as Record<string, unknown>;
+    const asText = (value: unknown): string => (typeof value === "string" ? value : "");
+    try {
+      const body = oauthAuthorizeFormSchema.parse(request.body);
+      requireKnownClient(db, body.client_id);
+      requireBrokerRedirectUri(body.redirect_uri);
+      // 401 UNAUTHORIZED on unknown email or wrong password — no code is issued.
+      const user = await authenticate(db, body.email, body.password);
+      const { code } = issueAuthorizationCode(db, {
+        userId: user.id,
+        clientId: body.client_id,
+        scope: body.scope ?? OAUTH_SCOPE_ALICE,
+      });
+      const target = new URL(body.redirect_uri);
+      target.searchParams.set("code", code);
+      // `state` is echoed verbatim so Yandex can match the linking session.
+      if (body.state !== undefined && body.state !== "") {
+        target.searchParams.set("state", body.state);
+      }
+      return reply.type("text/html; charset=utf-8").send(continuePage(target.toString()));
+    } catch (error) {
+      if (error instanceof FastifyHttpError && (error.status === 400 || error.status === 401)) {
+        const message =
+          error.status === 401 ? "Неверный email или пароль." : "Проверьте введенные данные.";
+        return reply
+          .status(error.status)
+          .type("text/html; charset=utf-8")
+          .send(
+            consentPage({
+              clientId: asText(raw.client_id),
+              redirectUri: asText(raw.redirect_uri),
+              scope: asText(raw.scope) === "" ? OAUTH_SCOPE_ALICE : asText(raw.scope),
+              state: asText(raw.state),
+              email: asText(raw.email),
+              error: message,
+            }),
+          );
+      }
+      throw error;
     }
-    return reply.redirect(target.toString());
   });
 
   app.post("/oauth/token", async (request) => {
