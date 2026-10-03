@@ -1,10 +1,21 @@
 import { timingSafeEqual } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import type { Db } from "../db/client";
+import { groceryLists } from "../db/schema";
 import { FastifyHttpError } from "../errors";
-import { type BotSender, createBotSender } from "./botApi";
+import { getMembership } from "../services/listService";
+import {
+  type BotSender,
+  LIST_CHOICE_PREFIX,
+  type ListChoice,
+  createBotSender,
+  createCallbackAnswerer,
+} from "./botApi";
 import { handleTelegramChat } from "./botDialog";
+import { clearChatDefault, setChatDefault } from "./chatDefaults";
 import type { ActionExtractor } from "./extract";
-import { type TelegramChatType, telegramUpdateSchema } from "./protocol";
+import { type TelegramChatType, type TelegramUpdate, telegramUpdateSchema } from "./protocol";
 import { getTelegramLinkByTelegramId } from "./service";
 
 export type BotWebhookOptions = {
@@ -13,6 +24,8 @@ export type BotWebhookOptions = {
   miniAppUrl: string;
   /** Test seam — defaults to the real HTTPS sender. */
   sender?: BotSender;
+  /** Dismisses callback-query spinners; defaults to the real HTTPS caller. */
+  answerCallback?: (callbackQueryId: string) => Promise<void>;
   /** T66 extractor (JEV when configured); absent = deterministic only. */
   extractor?: ActionExtractor;
   confidenceThreshold?: number;
@@ -67,6 +80,7 @@ export async function botWebhookRoutes(
   const db = app.db;
   const { botToken, webhookSecret, miniAppUrl } = options;
   const sender = options.sender ?? createBotSender(botToken);
+  const answerCallback = options.answerCallback ?? createCallbackAnswerer(botToken);
 
   app.post("/telegram/bot-webhook", async (request, reply) => {
     if (!secretsEqual(webhookSecret, request.headers["x-telegram-bot-api-secret-token"])) {
@@ -74,6 +88,14 @@ export async function botWebhookRoutes(
     }
     const parsed = telegramUpdateSchema.safeParse(request.body);
     if (!parsed.success) {
+      return reply.send({ ok: true });
+    }
+    // Tap on an inline list-choice button (T70): stores the shared chat
+    // default, never mutates items. Unknown buttons ack silently.
+    const callback = parsed.data.callback_query;
+    if (callback) {
+      await answerCallback(callback.id);
+      await handleCallbackChoice(request, db, sender, miniAppUrl, callback);
       return reply.send({ ok: true });
     }
     const message = parsed.data.message;
@@ -107,6 +129,7 @@ export async function botWebhookRoutes(
     const answer = await handleTelegramChat(
       db,
       link.userId,
+      String(chatId),
       source,
       chatType === "private",
       quoted,
@@ -118,9 +141,66 @@ export async function botWebhookRoutes(
     if (answer.silent || !answer.text) {
       return reply.send({ ok: true });
     }
-    await sendQuietly(request, sender, chatId, answer.text, miniAppUrl);
+    await sendQuietly(request, sender, chatId, answer.text, miniAppUrl, answer.choices);
     return reply.send({ ok: true });
   });
+}
+
+/**
+ * Stores the tapped list as the chat's shared default (T70). Never mutates
+ * items — the user resends the grocery message after switching. Unknown
+ * buttons, bot tappers, and updates without a chat ack silently.
+ */
+async function handleCallbackChoice(
+  request: { log: { warn: (obj: unknown, msg: string) => void } },
+  db: Db,
+  sender: BotSender,
+  miniAppUrl: string,
+  callback: NonNullable<TelegramUpdate["callback_query"]>,
+): Promise<void> {
+  const senderId = callback.from?.id;
+  const chatId = callback.message?.chat.id;
+  const data = callback.data ?? "";
+  if (senderId === undefined || callback.from?.is_bot === true || chatId === undefined) return;
+  if (!data.startsWith(LIST_CHOICE_PREFIX)) return;
+  const listId = data.slice(LIST_CHOICE_PREFIX.length);
+  if (listId === "") return;
+  const chatIdStr = String(chatId);
+  const link = getTelegramLinkByTelegramId(db, String(senderId));
+  if (!link) {
+    await sendQuietly(request, sender, chatId, BOT_LINK_PROMPT_TEXT, miniAppUrl);
+    return;
+  }
+  const target = db.select().from(groceryLists).where(eq(groceryLists.id, listId)).get();
+  if (!target) {
+    clearChatDefault(db, chatIdStr);
+    await sendQuietly(
+      request,
+      sender,
+      chatId,
+      "Список недоступен — выберите другой: /lists.\nThat list is gone — pick another: /lists.",
+      miniAppUrl,
+    );
+    return;
+  }
+  if (getMembership(db, listId, link.userId) === undefined) {
+    await sendQuietly(
+      request,
+      sender,
+      chatId,
+      `Нет доступа к «${target.title}» — попросите владельца поделиться.\nNo access to "${target.title}" — ask the owner to share it.`,
+      miniAppUrl,
+    );
+    return;
+  }
+  setChatDefault(db, chatIdStr, listId, link.userId);
+  await sendQuietly(
+    request,
+    sender,
+    chatId,
+    `Теперь этот чат покупает в «${target.title}».\nThis chat now shops for "${target.title}".`,
+    miniAppUrl,
+  );
 }
 
 /**
@@ -134,9 +214,13 @@ async function sendQuietly(
   chatId: number,
   text: string,
   miniAppUrl: string,
+  choices?: ListChoice[],
 ): Promise<void> {
   try {
-    await sender(chatId, text, miniAppUrl ? { openAppUrl: miniAppUrl } : undefined);
+    const opts: { openAppUrl?: string; choices?: ListChoice[] } = {};
+    if (miniAppUrl) opts.openAppUrl = miniAppUrl;
+    if (choices && choices.length > 0) opts.choices = choices;
+    await sender(chatId, text, Object.keys(opts).length > 0 ? opts : undefined);
   } catch (error) {
     request.log.warn({ err: error, chatId }, "telegram sendMessage failed");
   }

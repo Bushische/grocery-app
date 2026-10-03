@@ -214,15 +214,17 @@ BOT_TOKEN='<paste>' ; WEBHOOK_SECRET='<same-as-TELEGRAM_WEBHOOK_SECRET-on-NAS>'
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
   --data-urlencode "url=https://grocery.buyontheway.xyz/api/telegram/bot-webhook" \
   --data-urlencode "secret_token=${WEBHOOK_SECRET}" \
-  --data-urlencode 'allowed_updates=["message"]'
-# → {"ok":true, ...}
+  --data-urlencode 'allowed_updates=["message","callback_query"]'
+# → {"ok":true,...}
 ```
 
 Then in BotFather: `/setprivacy` → pick the bot → **Enable** (privacy ON: the bot
 gets `/commands`, `@mentions`, and `/command`-replies with the quoted text — plain
 group chatter never reaches it, which is the point), then **re-add the bot to every
 group** (the flip does not apply in place). Optional: `/setcommands` with `buy`,
-`list`, `bought`, `unbuy` for input autocomplete.
+`list`, `bought`, `unbuy`, `lists`, `use`, `help` for input autocomplete
+(`callback_query` taps need `["message","callback_query"]` in the `setWebhook`
+above, otherwise the inline list buttons arrive nowhere).
 
 Verify: message the bot `buy apples` in a private chat → it replies and the item
 appears in the list; `/buy milk, bread` adds both; reply `/buy` to a pasted

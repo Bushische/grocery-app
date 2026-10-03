@@ -4,6 +4,8 @@ import { type GroceryIntent, parseGroceryIntent } from "../alice/nlu";
 import type { Db } from "../db/client";
 import { listItems, moveItem, smartAddItem, updateItem } from "../services/itemService";
 import { getMembership, listListsForUser } from "../services/listService";
+import type { ListChoice } from "./botApi";
+import { getChatDefaultWithTitle, setChatDefault } from "./chatDefaults";
 import type { ActionExtractor } from "./extract";
 
 /** Confidence floor for acting on a JEV verdict (T66); below it we clarify. */
@@ -17,7 +19,12 @@ export type TelegramDialogDeps = {
 type Lang = "ru" | "en";
 type CandidateList = { id: string; title: string };
 
-export type TelegramChatAnswer = { text?: string; silent: boolean };
+export type TelegramChatAnswer = {
+  text?: string;
+  silent: boolean;
+  /** Tap-to-select lists (T70) — the webhook renders them as inline buttons. */
+  choices?: ListChoice[];
+};
 
 const LIST_CAP = 7;
 
@@ -113,18 +120,32 @@ function mapChatVerbs(command: string): string {
 }
 
 type ListResolution =
-  | { kind: "resolved"; listId: string; title: string; rest: string }
-  | { kind: "need_choice"; lists: CandidateList[] }
+  | {
+      kind: "resolved";
+      listId: string;
+      title: string;
+      rest: string;
+      via: "suffix" | "default" | "single";
+    }
+  | { kind: "need_choice"; lists: CandidateList[]; lockedTitle?: string }
   | { kind: "no_lists" };
 
 /**
  * Resolves the target list (docs/TELEGRAM_PLAN.md → §7): a `… в <List>` /
- * `… in <List>` suffix wins, a single accessible list applies silently,
- * several lists without a suffix ask once (stateless — the user repeats with
- * the suffix). Mutations need EDITOR+ (`noRights` reply for VIEWERs); reading
- * works on any accessible list.
+ * `… in <List>` suffix wins (and is remembered as the chat default), then
+ * the chat's shared default (one per chat_id, last writer wins), then a
+ * single accessible list silently. Several lists with no default ask once
+ * (`/use <name>` or a tap — T69/T70 — answers without retyping the suffix).
+ * Titles are NOT secret (shown unfiltered, 🔒-marked when the caller lacks
+ * access); mutations still need EDITOR+ (`noRights` reply for VIEWERs and
+ * outsiders), reading works on any accessible list.
  */
-export function resolveTelegramList(db: Db, userId: string, command: string): ListResolution {
+export function resolveTelegramList(
+  db: Db,
+  userId: string,
+  chatId: string,
+  command: string,
+): ListResolution {
   const accessible = listListsForUser(db, userId);
   if (accessible.length === 0) return { kind: "no_lists" };
   const byTitle = (wanted: string): Extract<ListResolution, { kind: "resolved" }> | undefined => {
@@ -134,7 +155,13 @@ export function resolveTelegramList(db: Db, userId: string, command: string): Li
     );
     if (matchedId === undefined) return undefined;
     const matched = accessible.find((list) => list.id === matchedId);
-    return { kind: "resolved", listId: matchedId, title: matched?.title ?? wanted, rest: "" };
+    return {
+      kind: "resolved",
+      listId: matchedId,
+      title: matched?.title ?? wanted,
+      rest: "",
+      via: "suffix",
+    };
   };
   // A list hint without products (a bare "/buy in Second" reply) still
   // resolves the list — the products come from the quoted message.
@@ -152,10 +179,30 @@ export function resolveTelegramList(db: Db, userId: string, command: string): Li
     // the products come from the quoted message (answerForProducts).
     if (hinted) return { ...hinted, rest };
   }
+  const chatDefault = getChatDefaultWithTitle(db, chatId);
+  if (chatDefault) {
+    const mine = accessible.find((list) => list.id === chatDefault.listId);
+    if (mine) {
+      return {
+        kind: "resolved",
+        listId: mine.id,
+        title: mine.title,
+        rest: command,
+        via: "default",
+      };
+    }
+    // The chat remembers a list this caller cannot access: show it marked
+    // (titles are not secret) instead of hiding it or leaking its items.
+    return {
+      kind: "need_choice",
+      lists: accessible.map((list) => ({ id: list.id, title: list.title })),
+      lockedTitle: chatDefault.title,
+    };
+  }
   if (accessible.length === 1) {
     const only = accessible[0];
     if (!only) return { kind: "no_lists" };
-    return { kind: "resolved", listId: only.id, title: only.title, rest: command };
+    return { kind: "resolved", listId: only.id, title: only.title, rest: command, via: "single" };
   }
   return {
     kind: "need_choice",
@@ -168,6 +215,107 @@ function canEdit(db: Db, listId: string, userId: string): boolean {
   return role === "OWNER" || role === "EDITOR";
 }
 
+function noListsText(lang: Lang): string {
+  return lang === "ru"
+    ? "Нет доступных списков — создайте список в приложении."
+    : "No lists yet — create one in the app.";
+}
+
+function helpText(lang: Lang): string {
+  return lang === "ru"
+    ? "Команды: /lists — списки и текущий список чата; /use <название> — выбрать список чата. Дальше просто «купи молоко». Ещё: «что купить», «купили молоко», «верни молоко»."
+    : 'Commands: /lists — lists and this chat\'s default; /use <name> — set it. Then just "buy milk". Also "what to buy", "bought milk", "unbuy milk".';
+}
+
+/**
+ * Explicit chat commands (T69, slash already stripped by the webhook):
+ * `/lists` shows the caller's lists with the chat default marked (●, or 🔒
+ * when the caller cannot access it — titles are not secret), `/use <name>`
+ * stores the shared default (membership required, last writer wins;
+ * quoted products are NOT consumed — resend the items after switching),
+ * `/help`+`/start` explain. Returns undefined for non-commands so the
+ * grocery pipeline runs. `/help` is private-only (groups stay silent);
+ * `/lists`+`/use` answer wherever they were addressed.
+ */
+function answerChatCommand(
+  db: Db,
+  userId: string,
+  chatId: string,
+  trimmed: string,
+  lang: Lang,
+  isPrivate: boolean,
+): TelegramChatAnswer | undefined {
+  // The webhook strips a leading /command (extractCommandText), but tolerate
+  // a surviving slash so direct calls and pasted commands behave the same.
+  const normalized = normalize(trimmed).replace(/^\/+/, "");
+  if (
+    normalized === "help" ||
+    normalized === "start" ||
+    normalized === "помощь" ||
+    normalized === "старт"
+  ) {
+    if (!isPrivate) return undefined;
+    return { silent: false, text: helpText(lang) };
+  }
+  if (normalized === "lists" || normalized === "списки") {
+    const accessible = listListsForUser(db, userId);
+    if (accessible.length === 0) return { silent: false, text: noListsText(lang) };
+    const chatDefault = getChatDefaultWithTitle(db, chatId);
+    const quoteName = (title: string): string => (lang === "ru" ? `«${title}»` : `"${title}"`);
+    const names = accessible
+      .map((list) => `${chatDefault?.listId === list.id ? "● " : ""}${quoteName(list.title)}`)
+      .join(", ");
+    const locked =
+      chatDefault && !accessible.some((list) => list.id === chatDefault.listId)
+        ? lang === "ru"
+          ? ` 🔒 «${chatDefault.title}» — список этого чата, но у вас нет доступа — попросите владельца поделиться.`
+          : ` 🔒 "${chatDefault.title}" is this chat's default but you have no access — ask the owner to share it.`
+        : "";
+    const current =
+      chatDefault && accessible.some((list) => list.id === chatDefault.listId)
+        ? lang === "ru"
+          ? ` Команды без уточнения идут в ● «${chatDefault.title}».`
+          : ` Bare commands go to ● "${chatDefault.title}".`
+        : "";
+    return {
+      silent: false,
+      text:
+        lang === "ru"
+          ? `Списки: ${names}.${current} Переключить: /use <название>.${locked}`
+          : `Lists: ${names}.${current} Switch: /use <name>.${locked}`,
+      choices: accessible.map((list) => ({ listId: list.id, title: list.title })),
+    };
+  }
+  const useMatch = normalized.match(/^(use|используй|выбери)\s+(.+)$/su);
+  if (useMatch) {
+    const displayName = trimmed.slice(trimmed.search(/\s/u)).trim() || (useMatch[2] ?? "").trim();
+    const accessible = listListsForUser(db, userId);
+    const matchedId = matchListChoice(
+      accessible.map((list) => ({ id: list.id, title: list.title })),
+      (useMatch[2] ?? "").trim(),
+    );
+    const matched = accessible.find((list) => list.id === matchedId);
+    if (!matched) {
+      return {
+        silent: false,
+        text:
+          lang === "ru"
+            ? `Не нашёл «${displayName}» среди ваших списков. Покажите их: /lists.`
+            : `Couldn't find "${displayName}" among your lists. Show them: /lists.`,
+      };
+    }
+    setChatDefault(db, chatId, matched.id, userId);
+    return {
+      silent: false,
+      text:
+        lang === "ru"
+          ? `Теперь этот чат покупает в «${matched.title}».`
+          : `This chat now shops for "${matched.title}".`,
+    };
+  }
+  return undefined;
+}
+
 /**
  * Answers one linked chat turn. `quoted` is the `reply_to_message` text for
  * `/command`-as-reply (T65): the command carries the list hint
@@ -178,32 +326,48 @@ function canEdit(db: Db, listId: string, userId: string): boolean {
 export async function handleTelegramChat(
   db: Db,
   userId: string,
+  chatId: string,
   rawCommand: string,
   isPrivate: boolean,
   quoted = "",
   deps: TelegramDialogDeps = {},
 ): Promise<TelegramChatAnswer> {
   const quote = quoted.trim();
-  const lang = langOf(rawCommand !== "" ? rawCommand : quote);
-  const resolution = resolveTelegramList(db, userId, rawCommand.trim() || quote);
+  const trimmed = rawCommand.trim();
+  const lang = langOf(trimmed !== "" ? trimmed : quote);
+  // Explicit chat commands (T69): only when the text was typed, never when it
+  // fell back to the quote (a quoted "lists" is products, not a command).
+  // /lists + /use answer in groups too (addressed delivery is enforced by the
+  // webhook); /help stays private-only like any other unknown text.
+  if (trimmed !== "" && trimmed !== quote) {
+    const commanded = answerChatCommand(db, userId, chatId, trimmed, lang, isPrivate);
+    if (commanded) return commanded;
+  }
+  const resolution = resolveTelegramList(db, userId, chatId, trimmed || quote);
   if (resolution.kind === "no_lists") {
-    return {
-      silent: false,
-      text:
-        lang === "ru"
-          ? "Нет доступных списков — создайте список в приложении."
-          : "No lists yet — create one in the app.",
-    };
+    return { silent: false, text: noListsText(lang) };
   }
   if (resolution.kind === "need_choice") {
     const names = resolution.lists.map((list) => `«${list.title}»`).join(", ");
+    const locked =
+      resolution.lockedTitle === undefined
+        ? ""
+        : lang === "ru"
+          ? ` 🔒 «${resolution.lockedTitle}» — список этого чата, но у вас нет доступа — попросите владельца поделиться.`
+          : ` 🔒 "${resolution.lockedTitle}" is this chat's default but you have no access — ask the owner to share it.`;
     return {
       silent: false,
       text:
         lang === "ru"
-          ? `У вас несколько списков: ${names}. Уточните, например: «купи молоко в ${resolution.lists[0]?.title}».`
-          : `You have several lists: ${names}. Specify one, e.g. "buy milk in ${resolution.lists[0]?.title}".`,
+          ? `У вас несколько списков: ${names}. Уточните, например: «купи молоко в ${resolution.lists[0]?.title}» или «/use ${resolution.lists[0]?.title}».${locked}`
+          : `You have several lists: ${names}. Specify one, e.g. "buy milk in ${resolution.lists[0]?.title}" or "/use ${resolution.lists[0]?.title}".${locked}`,
+      choices: resolution.lists.map((list) => ({ listId: list.id, title: list.title })),
     };
+  }
+  // An explicit suffix doubles as the chat's new shared default (last writer
+  // wins) — the next bare command lands without asking.
+  if (resolution.via === "suffix") {
+    setChatDefault(db, chatId, resolution.listId, userId);
   }
   const intent = parseTelegramIntent(resolution.rest);
   if (intent.kind === "unknown") {

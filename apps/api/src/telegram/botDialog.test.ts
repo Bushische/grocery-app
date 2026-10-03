@@ -1,8 +1,9 @@
 import { createId } from "@paralleldrive/cuid2";
+import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type Db, createDb, createSqlite } from "../db/client";
 import { runMigrations } from "../db/migrate";
-import { users } from "../db/schema";
+import { groceryLists, users } from "../db/schema";
 import { addListMember, createList } from "../services/listService";
 import {
   type TelegramDialogDeps,
@@ -32,8 +33,17 @@ async function answerText(
   isPrivate = true,
   quoted = "",
   deps: TelegramDialogDeps = {},
+  chatId?: string,
 ): Promise<string | undefined> {
-  const answer = await handleTelegramChat(db, userId, command, isPrivate, quoted, deps);
+  const answer = await handleTelegramChat(
+    db,
+    userId,
+    chatId ?? `chat:${userId}`,
+    command,
+    isPrivate,
+    quoted,
+    deps,
+  );
   return answer.silent ? undefined : answer.text;
 }
 
@@ -76,25 +86,28 @@ describe("parseTelegramIntent (T63 — EN verbs onto Alice NLU)", () => {
 
 describe("resolveTelegramList (T63)", () => {
   it("auto-uses the single writable list", async () => {
-    const resolution = resolveTelegramList(db, soloUser, "buy apples");
+    const resolution = resolveTelegramList(db, soloUser, "chat:t63-single", "buy apples");
     expect(resolution).toEqual({
       kind: "resolved",
       listId: soloListId,
       title: "Home",
       rest: "buy apples",
+      via: "single",
     });
   });
 
   it("reports no_lists without writable lists", async () => {
-    expect(resolveTelegramList(db, emptyUser, "buy apples").kind).toBe("no_lists");
+    expect(resolveTelegramList(db, emptyUser, "chat:t63-empty", "buy apples").kind).toBe(
+      "no_lists",
+    );
   });
 
   it("asks with names for several lists, routing …в/in <List> suffixes", async () => {
-    const asked = resolveTelegramList(db, multiUser, "buy milk");
+    const asked = resolveTelegramList(db, multiUser, "chat:t63-ask", "buy milk");
     expect(asked.kind).toBe("need_choice");
-    const routed = resolveTelegramList(db, multiUser, "buy milk in Second");
+    const routed = resolveTelegramList(db, multiUser, "chat:t63-ask", "buy milk in Second");
     expect(routed).toMatchObject({ kind: "resolved", title: "Second", rest: "buy milk" });
-    const routedRu = resolveTelegramList(db, multiUser, "купи молоко в First");
+    const routedRu = resolveTelegramList(db, multiUser, "chat:t63-ask", "купи молоко в First");
     expect(routedRu).toMatchObject({ kind: "resolved", title: "First" });
   });
 });
@@ -253,13 +266,119 @@ describe("handleTelegramChat grocery intents (T63)", () => {
   });
 
   it("asks multi-list users to specify, then routes by suffix", async () => {
-    expect((await answerText(multiUser, "buy milk")) ?? "").toContain("First");
-    expect(await answerText(multiUser, "buy milk in Second")).toBe('Added "milk" to "Second".');
+    // Fresh chat: a suffix stored earlier on the user's default chat must not leak in.
+    const chat = `chat:t63-remember-${createId()}`;
+    expect((await answerText(multiUser, "buy milk", true, "", {}, chat)) ?? "").toContain("First");
+    expect(await answerText(multiUser, "buy milk in Second", true, "", {}, chat)).toBe(
+      'Added "milk" to "Second".',
+    );
   });
 
   it("reports empty state with no lists and rights for VIEWERs", async () => {
     expect((await answerText(emptyUser, "buy milk")) ?? "").toContain("No lists");
     expect((await answerText(viewerUser, "buy milk")) ?? "").toContain("editor");
     expect((await answerText(viewerUser, "what to buy")) ?? "").toContain("Home");
+  });
+});
+
+describe("chat default + commands (T69)", () => {
+  it("asks once, then remembers the chat default", async () => {
+    const chat = `chat:t69-once-${createId()}`;
+    expect((await answerText(multiUser, "buy quince", true, "", {}, chat)) ?? "").toContain("/use");
+    expect(await answerText(multiUser, "buy quince in Second", true, "", {}, chat)).toBe(
+      'Added "quince" to "Second".',
+    );
+    expect(await answerText(multiUser, "buy feijoa", true, "", {}, chat)).toBe(
+      'Added "feijoa" to "Second".',
+    );
+  });
+
+  it("keeps defaults independent per chat", async () => {
+    const chatA = `chat:t69-a-${createId()}`;
+    const chatB = `chat:t69-b-${createId()}`;
+    expect(await answerText(multiUser, "use First", true, "", {}, chatA)).toContain("First");
+    expect(await answerText(multiUser, "buy tea", true, "", {}, chatA)).toBe(
+      'Added "tea" to "First".',
+    );
+    expect((await answerText(multiUser, "buy coffee", true, "", {}, chatB)) ?? "").toContain(
+      "/use",
+    );
+  });
+
+  it("/lists marks the current default and /use switches it", async () => {
+    const chat = `chat:t69-lists-${createId()}`;
+    const before = (await answerText(multiUser, "lists", true, "", {}, chat)) ?? "";
+    expect(before).toContain("First");
+    expect(before).toContain("Second");
+    expect(before).not.toContain("●");
+    expect(await answerText(multiUser, "use Second", true, "", {}, chat)).toContain("Second");
+    const after = (await answerText(multiUser, "списки", true, "", {}, chat)) ?? "";
+    expect(after).toContain("● «Second»");
+  });
+
+  it("/use rejects unknown names without storing anything", async () => {
+    const chat = `chat:t69-miss-${createId()}`;
+    expect((await answerText(multiUser, "use Atlantis", true, "", {}, chat)) ?? "").toContain(
+      "Atlantis",
+    );
+    expect(
+      (await answerText(multiUser, "buy t69-coffee-beans", true, "", {}, chat)) ?? "",
+    ).toContain("/use");
+  });
+
+  it("shows a locked default the caller cannot access", async () => {
+    const chat = `chat:t69-locked-${createId()}`;
+    const owner = createUser("tg-t69-owner@example.com");
+    const stranger = createUser("tg-t69-stranger@example.com");
+    createList(db, owner, "Shared");
+    createList(db, stranger, "Mine");
+    expect(await answerText(owner, "buy nails in Shared", true, "", {}, chat)).toContain("Shared");
+    const asked = (await answerText(stranger, "buy bolts", true, "", {}, chat)) ?? "";
+    expect(asked).toContain("🔒");
+    expect(asked).toContain("Shared");
+    expect(asked).toContain("Mine");
+    const lists = (await answerText(stranger, "lists", true, "", {}, chat)) ?? "";
+    expect(lists).toContain("🔒");
+    expect(lists).toContain("Shared");
+  });
+
+  it("helps on /help in private and stays silent in groups", async () => {
+    expect((await answerText(soloUser, "help")) ?? "").toContain("/lists");
+    expect((await answerText(soloUser, "/start")) ?? "").toContain("/lists");
+    expect(await answerText(soloUser, "help", false)).toBeUndefined();
+  });
+});
+
+describe("inline choices (T70)", () => {
+  it("attaches tap choices to need_choice and /lists, none to plain replies", async () => {
+    const chat = `chat:t70-${createId()}`;
+    const asked = await handleTelegramChat(db, multiUser, chat, "buy t70-lychee", true);
+    expect(asked.silent).toBe(false);
+    expect(asked.choices?.map((c) => c.title).sort()).toEqual(["First", "Second"]);
+    const lists = await handleTelegramChat(db, multiUser, chat, "lists", true);
+    expect(lists.choices?.map((c) => c.title).sort()).toEqual(["First", "Second"]);
+    const added = await handleTelegramChat(
+      db,
+      soloUser,
+      `chat:t70-solo-${createId()}`,
+      "buy t70-papaya",
+      true,
+    );
+    expect(added.text).toBe('Added "t70-papaya" to "Home".');
+    expect(added.choices).toBeUndefined();
+  });
+});
+
+describe("stale chat defaults (T69)", () => {
+  it("stale defaults fall through without errors", async () => {
+    const chat = `chat:t69-stale-${createId()}`;
+    const user = createUser("tg-t69-stale@example.com");
+    const doomed = createList(db, user, "Doomed").id;
+    createList(db, user, "Kept");
+    expect(await answerText(user, "use Doomed", true, "", {}, chat)).toContain("Doomed");
+    db.delete(groceryLists).where(eq(groceryLists.id, doomed)).run();
+    expect(await answerText(user, "buy t69-pear", true, "", {}, chat)).toBe(
+      'Added "t69-pear" to "Kept".',
+    );
   });
 });

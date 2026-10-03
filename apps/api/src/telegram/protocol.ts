@@ -35,6 +35,16 @@ const telegramMessageSchema = z.object({
 export const telegramUpdateSchema = z.object({
   update_id: z.number().int(),
   message: telegramMessageSchema.optional(),
+  // Tap on an inline list-choice button (T70): `data` is `tg-use:<listId>`.
+  // The originating chat arrives via `message.chat` when Telegram attaches it.
+  callback_query: z
+    .object({
+      id: z.string().min(1),
+      from: telegramUserSchema,
+      message: telegramMessageSchema.optional(),
+      data: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type TelegramUpdate = z.infer<typeof telegramUpdateSchema>;

@@ -13,11 +13,16 @@ import { linkTelegramAccount } from "./service";
 const WEBHOOK_SECRET = "test-webhook-secret";
 const MINI_APP_URL = "https://grocery.example.com/";
 
-type SentMessage = { chatId: number; text: string; opts?: { openAppUrl?: string } };
+type SentMessage = {
+  chatId: number;
+  text: string;
+  opts?: { openAppUrl?: string; choices?: { listId: string; title: string }[] };
+};
 
 let app: FastifyInstance;
 let db: Db;
 let sent: SentMessage[];
+let answered: string[];
 
 function messageUpdate(params: {
   text?: string;
@@ -37,6 +42,26 @@ function messageUpdate(params: {
       ...(params.replyToText === undefined
         ? {}
         : { reply_to_message: { message_id: 0, text: params.replyToText } }),
+    },
+  };
+}
+
+function callbackUpdate(params: {
+  data?: string;
+  chatId?: number;
+  fromId?: number;
+  isBot?: boolean;
+  withMessage?: boolean;
+}): Record<string, unknown> {
+  return {
+    update_id: 2,
+    callback_query: {
+      id: "cq-1",
+      from: { id: params.fromId ?? 279058397, is_bot: params.isBot ?? false },
+      ...(params.withMessage === false
+        ? {}
+        : { message: { message_id: 5, chat: { id: params.chatId ?? 100, type: "private" } } }),
+      ...(params.data === undefined ? {} : { data: params.data }),
     },
   };
 }
@@ -65,6 +90,7 @@ beforeAll(async () => {
   createList(db, userId, "TG List");
 
   sent = [];
+  answered = [];
   app = Fastify({ logger: false });
   applyErrorHandling(app);
   registerDb(app, db);
@@ -74,6 +100,9 @@ beforeAll(async () => {
     miniAppUrl: MINI_APP_URL,
     sender: async (chatId, text, opts) => {
       sent.push({ chatId, text, opts });
+    },
+    answerCallback: async (id) => {
+      answered.push(id);
     },
   });
   await app.ready();
@@ -204,5 +233,116 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
     sent = [];
     await postUpdate(messageUpdate({ text: "@bot /start", chatType: "group", chatId: 201 }));
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("POST /telegram/bot-webhook callback_query (T70 tap-to-select)", () => {
+  const tapper = 555111;
+  let alphaId: string;
+  let betaId: string;
+  let gammaId: string;
+
+  beforeAll(async () => {
+    const userId = createId();
+    db.insert(users)
+      .values({ id: userId, email: "tg-tap@example.com", passwordHash: "dummy", role: "user" })
+      .run();
+    linkTelegramAccount(db, userId, String(tapper));
+    alphaId = createList(db, userId, "Alpha").id;
+    betaId = createList(db, userId, "Beta").id;
+    const outsider = createId();
+    db.insert(users)
+      .values({
+        id: outsider,
+        email: "tg-tap-out@example.com",
+        passwordHash: "dummy",
+        role: "user",
+      })
+      .run();
+    gammaId = createList(db, outsider, "Gamma").id;
+  });
+
+  it("rejects callbacks with a wrong secret (401, nothing sent, spinner untouched)", async () => {
+    sent = [];
+    answered = [];
+    const res = await postUpdate(
+      callbackUpdate({ chatId: 320, fromId: tapper, data: `tg-use:${alphaId}` }),
+      "wrong-secret",
+    );
+    expect(res.statusCode).toBe(401);
+    expect(sent).toHaveLength(0);
+    expect(answered).toHaveLength(0);
+  });
+
+  it("stores the tapped list, confirms, and routes the next bare command there", async () => {
+    sent = [];
+    answered = [];
+    const res = await postUpdate(
+      callbackUpdate({ chatId: 321, fromId: tapper, data: `tg-use:${betaId}` }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(answered).toEqual(["cq-1"]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("Beta");
+    expect(sent[0]?.opts).toEqual({ openAppUrl: MINI_APP_URL });
+    sent = [];
+    const follow = await postUpdate(
+      messageUpdate({ text: "buy kiwi", chatId: 321, fromId: tapper }),
+    );
+    expect(follow.statusCode).toBe(200);
+    expect(sent[0]?.text).toBe('Added "kiwi" to "Beta".');
+  });
+
+  it("attaches tap choices to need_choice and /lists replies", async () => {
+    sent = [];
+    await postUpdate(messageUpdate({ text: "buy plum", chatId: 322, fromId: tapper }));
+    expect(sent[0]?.opts?.choices?.map((c) => c.title).sort()).toEqual(["Alpha", "Beta"]);
+    sent = [];
+    await postUpdate(messageUpdate({ text: "/lists", chatId: 322, fromId: tapper }));
+    expect(sent[0]?.opts?.choices?.map((c) => c.title).sort()).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("degrades gracefully on deleted list ids", async () => {
+    sent = [];
+    const res = await postUpdate(
+      callbackUpdate({ chatId: 323, fromId: tapper, data: "tg-use:no-such-list" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("gone");
+  });
+
+  it("refuses taps on lists the tapper cannot access", async () => {
+    sent = [];
+    const res = await postUpdate(
+      callbackUpdate({ chatId: 324, fromId: tapper, data: `tg-use:${gammaId}` }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("No access");
+  });
+
+  it("prompts unlinked tappers to link, storing nothing", async () => {
+    sent = [];
+    const res = await postUpdate(
+      callbackUpdate({ chatId: 325, fromId: 999888, data: `tg-use:${alphaId}` }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toBe(BOT_LINK_PROMPT_TEXT);
+  });
+
+  it("acks unknown button payloads silently", async () => {
+    sent = [];
+    answered = [];
+    expect(
+      (await postUpdate(callbackUpdate({ chatId: 326, fromId: tapper, data: "nope" }))).statusCode,
+    ).toBe(200);
+    expect(
+      (await postUpdate(callbackUpdate({ chatId: 326, fromId: tapper, withMessage: false })))
+        .statusCode,
+    ).toBe(200);
+    expect(sent).toHaveLength(0);
+    expect(answered).toEqual(["cq-1", "cq-1"]);
   });
 });

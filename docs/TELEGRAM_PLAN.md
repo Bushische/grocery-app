@@ -178,8 +178,11 @@ Mini App link as identity — no second account system.
   `…/api/telegram/bot-webhook`, nginx strips `/api/` like `/alice/webhook`).
   Registered via `setWebhook` with `secret_token = TELEGRAM_WEBHOOK_SECRET`
   (validated with `timingSafeEqual`, fail-closed 401) and
-  `allowed_updates=["message"]`. Non-text updates, bot-sent messages, and
-  off-topic group chatter are acked `200` with no reply (no retry storms).
+  `allowed_updates=["message","callback_query"]` (taps on the inline
+  list-choice buttons arrive as `callback_query` with `data = tg-use:<listId>`;
+  a tap stores the chat default and confirms — it never mutates items).
+  Non-text updates, bot-sent messages, and off-topic group chatter are acked
+  `200` with no reply (no retry storms).
 - **Identity:** sender id → `telegram_links` → app user. Unlinked senders get a
   link prompt with an open-app `web_app` button, never a mutation.
 - **Scope of hearing:** private chats — every text is a candidate command
@@ -196,10 +199,16 @@ Mini App link as identity — no second account system.
   so matching semantics stay identical across voice and chat. Unknown item
   names clarify, never move the wrong item. Mutations require EDITOR+ on the
   target list (VIEWER gets a rights reply but can still list).
-- **List resolution (no Alice-style binding table):** writable lists via
-  `listListsForUser` — exactly one → use it; `… в <List>` / `… in <List>`
-  suffix → match by title; otherwise reply with the list names and the suffix
-  pattern (stateless, works in groups).
+- **List resolution (shared per-chat default, T68–T70):** one remembered
+  list per `chat_id` (`telegram_chat_defaults`: last writer wins, setter
+  stored), shared by everyone in the chat. Chain: `… в <List>` / `… in
+  <List>` suffix (also remembered) → chat default → single accessible list
+  → ask once (`/use <name>` or a tap answers, no retyping). `/lists` shows
+  the caller's lists with the default marked (●, or 🔒 when the caller
+  cannot access it); `/use <name>` and button taps store it (membership
+  required); `/help` explains. Titles are NOT secret — shown unfiltered and
+  🔒-marked when inaccessible; access is enforced at execution (EDITOR+ for
+  mutations, membership for reads), never by hiding titles.
 - **Replies:** plain text (no `parse_mode` escaping bugs), language follows the
   message (Cyrillic → RU, else EN), every grocery reply carries an inline
   `web_app` button (`TELEGRAM_MINI_APP_URL`) that opens the Mini App.
@@ -211,6 +220,9 @@ Mini App link as identity — no second account system.
   replace JEV without touching webhook/dialog/services. `EXTRACTION_BACKEND`
   switches backends (default deterministic = zero external calls).
 - **Ops (manual):** `setWebhook` curl after each deploy (URL never changes, so
-  once per bot in practice), `/setprivacy` Disable, optional `/setcommands`.
-  Explicitly out: `callback_query` buttons, message editing/deletion, payments.
+  once per bot in practice) with `allowed_updates=["message","callback_query"]`,
+  `/setprivacy` Enable + re-add (privacy ON — only `/commands`, `@mentions`,
+  and `/command`-replies arrive), `/setcommands` with `buy`, `list`, `bought`,
+  `unbuy`, `lists`, `use`, `help` for autocomplete.
+  Explicitly out: message editing/deletion, payments.
 

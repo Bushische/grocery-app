@@ -168,6 +168,22 @@ export const telegramLinks = sqliteTable(
   (t) => [uniqueIndex("telegram_links_telegram_id_uq").on(t.telegramId)],
 );
 
+// --- Per-chat shared default list (T68) ---
+// One remembered grocery list per Telegram chat, shared by everyone in it
+// (private chat = one sender, same code path). Last writer wins; the setter
+// is stored for the "X switched this chat to …" announce. Titles are NOT
+// secret (shown unfiltered); access is enforced at execution time.
+export const telegramChatDefaults = sqliteTable("telegram_chat_defaults", {
+  chatId: text("chat_id").primaryKey(), // Telegram chat id as TEXT (groups are negative)
+  listId: text("list_id")
+    .notNull()
+    .references(() => groceryLists.id, { onDelete: "cascade" }),
+  setByUserId: text("set_by_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(now),
+});
+
 // --- OAuth provider for Alice account linking (docs/ALICE_PLAN.md → §2) ---
 // Hash-only storage throughout (mirrors api_tokens): secrets, codes, and
 // tokens are sha256-hashed before persistence; plaintext is never stored.
