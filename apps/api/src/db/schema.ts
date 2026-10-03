@@ -150,6 +150,24 @@ export const aliceLinks = sqliteTable("alice_links", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
 });
 
+// --- Telegram Mini App account linking (docs/TELEGRAM_PLAN.md → §2) ---
+// Same email user can hold an Alice OAuth identity AND a Telegram id at the
+// same time: this table is independent of `alice_links` / `oauth_*`.
+// telegram_id is Telegram's public numeric identifier, stored as TEXT as-is
+// (unlike tokens/secrets which are sha256-hashed). Re-linking the same
+// telegram_id to a different user MOVES the link (Q3: re-assign by default).
+export const telegramLinks = sqliteTable(
+  "telegram_links",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    telegramId: text("telegram_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+  },
+  (t) => [uniqueIndex("telegram_links_telegram_id_uq").on(t.telegramId)],
+);
+
 // --- OAuth provider for Alice account linking (docs/ALICE_PLAN.md → §2) ---
 // Hash-only storage throughout (mirrors api_tokens): secrets, codes, and
 // tokens are sha256-hashed before persistence; plaintext is never stored.

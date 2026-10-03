@@ -4,6 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { ApiClientError } from "../../../lib/api-client";
+import { useTelegramLink } from "../../telegram/hooks/use-telegram-link";
+import { getTelegramInitData } from "../../telegram/webapp";
 import { useLogin } from "../hooks/use-login";
 
 const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password.";
@@ -17,6 +19,11 @@ const fieldErrorClassName = "mt-1 text-sm text-red-600";
 
 export function LoginPage() {
   const login = useLogin();
+  const telegramLink = useTelegramLink();
+  // Inside Telegram with no link yet, the same form binds the Telegram account
+  // (docs/TELEGRAM_PLAN.md → §2) — later boots skip the password entirely.
+  const isTelegramLink = getTelegramInitData() !== null;
+  const active = isTelegramLink ? telegramLink : login;
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     register,
@@ -30,7 +37,7 @@ export function LoginPage() {
   const onSubmit = handleSubmit(async (values) => {
     setServerError(null);
     try {
-      await login.mutateAsync(values);
+      await active.mutateAsync(values);
     } catch (error) {
       setServerError(
         error instanceof ApiClientError && error.status === 401
@@ -48,7 +55,11 @@ export function LoginPage() {
         className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200"
       >
         <h1 className="text-xl font-semibold text-gray-900">My Groceries</h1>
-        <p className="mt-1 text-sm text-gray-500">Sign in to your account</p>
+        <p className="mt-1 text-sm text-gray-500">
+          {isTelegramLink
+            ? "Sign in once to link your Telegram account — next time you open without a password"
+            : "Sign in to your account"}
+        </p>
 
         <div className="mt-6 space-y-4">
           <Field>

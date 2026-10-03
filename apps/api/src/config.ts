@@ -18,6 +18,8 @@ const envSchema = z.object({
   OAUTH_CLIENT_ID: z.string().min(1).default("alice"),
   OAUTH_CLIENT_SECRET: z.string().min(1).default("alice-dev-secret-change-me"),
   ALICE_SKILL_ID: z.string().min(1).default("alice-dev-skill"),
+  TELEGRAM_BOT_TOKEN: z.string().default(""),
+  TELEGRAM_AUTH_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(86400),
 });
 
 export type LogLevel = z.infer<typeof envSchema>["LOG_LEVEL"];
@@ -35,6 +37,8 @@ export type AppConfig = {
   oauthClientId: string;
   oauthClientSecret: string;
   aliceSkillId: string;
+  telegramBotToken: string;
+  telegramAuthMaxAgeSeconds: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -53,6 +57,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       "CORS_ORIGIN must be set in production (comma-separated origin allowlist, see .env.prod.example): with credentials: true an unset CORS_ORIGIN would reflect any origin",
     );
   }
+  if (parsed.NODE_ENV === "production" && parsed.TELEGRAM_BOT_TOKEN.trim() === "") {
+    throw new Error("TELEGRAM_BOT_TOKEN must be set in production (see .env.example)");
+  }
   return {
     env: parsed.NODE_ENV,
     isProduction: parsed.NODE_ENV === "production",
@@ -66,5 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     oauthClientId: parsed.OAUTH_CLIENT_ID,
     oauthClientSecret: parsed.OAUTH_CLIENT_SECRET,
     aliceSkillId: parsed.ALICE_SKILL_ID,
+    telegramBotToken: parsed.TELEGRAM_BOT_TOKEN,
+    telegramAuthMaxAgeSeconds: parsed.TELEGRAM_AUTH_MAX_AGE_SECONDS,
   };
 }

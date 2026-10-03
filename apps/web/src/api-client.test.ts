@@ -245,3 +245,70 @@ describe("api client auth flows", () => {
     expect(useAuthStore.getState().user).toBeNull();
   });
 });
+
+describe("api client Telegram Mini App auth (T60)", () => {
+  const INIT_DATA = "auth_date=1737000000&user=%7B%22id%22%3A279058397%7D&hash=abc";
+
+  it("telegramSession stores the session on a link hit", async () => {
+    const mock = createApiFetchMock();
+    mock.stub();
+    mock.on("POST", "/api/auth/telegram/session", () =>
+      json(200, { accessToken: "tg-token", user: USER }),
+    );
+
+    await expect(api.telegramSession(INIT_DATA)).resolves.toEqual(USER);
+    expect(useAuthStore.getState().accessToken).toBe("tg-token");
+    const call = mock.callsTo("POST", "/api/auth/telegram/session")[0];
+    expect(call?.body).toEqual({ initData: INIT_DATA });
+  });
+
+  it("telegramSession resolves null without a session on 404 (not linked)", async () => {
+    const mock = createApiFetchMock();
+    mock.stub();
+    mock.on("POST", "/api/auth/telegram/session", () =>
+      json(404, { error: { code: "NOT_FOUND", message: "Telegram account not linked" } }),
+    );
+    useAuthStore.setState({ accessToken: "stale", user: USER });
+
+    await expect(api.telegramSession(INIT_DATA)).resolves.toBeNull();
+    expect(useAuthStore.getState().accessToken).toBe("stale");
+  });
+
+  it("telegramLink posts email+password+initData and stores the session", async () => {
+    const mock = createApiFetchMock();
+    mock.stub();
+    mock.on("POST", "/api/auth/telegram/link", () =>
+      json(200, { accessToken: "tg-token", user: USER }),
+    );
+
+    const user = await api.telegramLink("  Alex@Example.COM ", "secret", INIT_DATA);
+
+    expect(user).toEqual(USER);
+    expect(useAuthStore.getState().accessToken).toBe("tg-token");
+    const call = mock.callsTo("POST", "/api/auth/telegram/link")[0];
+    expect(call?.body).toEqual({
+      email: "alex@example.com",
+      password: "secret",
+      initData: INIT_DATA,
+    });
+  });
+
+  it("does not refresh-and-retry on Telegram 401s (bad initData, never expiry)", async () => {
+    const mock = createApiFetchMock();
+    mock.stub();
+    mock.on("POST", "/api/auth/telegram/session", () =>
+      json(401, {
+        error: { code: "UNAUTHORIZED", message: "Invalid Telegram initData signature" },
+      }),
+    );
+    mock.on("POST", "/api/auth/telegram/link", () =>
+      json(401, { error: { code: "UNAUTHORIZED", message: "Invalid email or password" } }),
+    );
+
+    await expect(api.telegramSession(INIT_DATA)).rejects.toMatchObject({ status: 401 });
+    await expect(api.telegramLink("a@b.co", "wrong", INIT_DATA)).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(mock.callsTo("POST", "/api/auth/refresh")).toHaveLength(0);
+  });
+});

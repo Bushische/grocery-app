@@ -4,6 +4,8 @@ import {
   type LoginResponse,
   loginRequestSchema,
   loginResponseSchema,
+  telegramLinkRequestSchema,
+  telegramSessionRequestSchema,
 } from "@grocery/shared";
 import type { ZodType } from "zod";
 
@@ -34,7 +36,12 @@ export interface ApiRequestOptions {
 }
 
 /** Endpoints whose 401 means "bad credentials", never "access token expired". */
-const NO_REFRESH_PATHS = new Set(["/auth/login", "/auth/refresh"]);
+const NO_REFRESH_PATHS = new Set([
+  "/auth/login",
+  "/auth/refresh",
+  "/auth/telegram/session",
+  "/auth/telegram/link",
+]);
 
 async function toApiError(response: Response): Promise<ApiClientError> {
   let code = `HTTP_${response.status}`;
@@ -137,6 +144,38 @@ export function createApiClient(adapter: AuthAdapter) {
       } finally {
         adapter.clearSession();
       }
+    },
+    /**
+     * Telegram passwordless session (docs/TELEGRAM_PLAN.md → §2): linked
+     * devices authenticate with signed `initData` alone. A 404 means
+     * "not linked" (the caller shows the one-time link form), not a failure —
+     * so it resolves to null like a missing refresh cookie.
+     */
+    async telegramSession(initData: string): Promise<AuthUser | null> {
+      const body = telegramSessionRequestSchema.parse({ initData });
+      try {
+        const session = await request<LoginResponse>("/auth/telegram/session", {
+          method: "POST",
+          body,
+          schema: loginResponseSchema,
+        });
+        adapter.setSession(session.user, session.accessToken);
+        return session.user;
+      } catch (error) {
+        if (error instanceof ApiClientError && error.status === 404) return null;
+        throw error;
+      }
+    },
+    /** One-time Telegram link: email+password plus the signed `initData`. */
+    async telegramLink(email: string, password: string, initData: string): Promise<AuthUser> {
+      const body = telegramLinkRequestSchema.parse({ email, password, initData });
+      const session = await request<LoginResponse>("/auth/telegram/link", {
+        method: "POST",
+        body,
+        schema: loginResponseSchema,
+      });
+      adapter.setSession(session.user, session.accessToken);
+      return session.user;
     },
     get<T>(path: string, schema: ZodType<T>, signal?: AbortSignal): Promise<T> {
       return request<T>(path, { schema, signal });

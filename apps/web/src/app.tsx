@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RedirectIfAuthenticated, RequireAuth } from "./features/auth/components/session-guards";
 import { LoginPage } from "./features/auth/pages/login-page";
@@ -7,9 +8,14 @@ import { ItemDetailsPage } from "./features/items/pages/item-details-page";
 import { ListsPage } from "./features/lists/pages/lists-page";
 import { MembersPage } from "./features/members/pages/members-page";
 import { UpdateToast } from "./features/pwa/components/update-toast";
+import { notifyTelegramReady } from "./features/telegram/webapp";
 import { UsersPage } from "./features/users/pages/users-page";
 
 export function App() {
+  // Telegram Mini App handshake (T60): no-op in plain browsers.
+  useEffect(() => {
+    notifyTelegramReady();
+  }, []);
   return (
     <>
       <Routes>

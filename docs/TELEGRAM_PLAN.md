@@ -159,8 +159,12 @@ validation (bot-token HMAC is sufficient — we own the bot).
 2. `telegram.org/js/telegram-web-app.js` is an external CDN script — CSP (`helmet`)
    must allow it, and offline/PWA shell must not break when it is unreachable.
    (v1: plain `<script>` in `index.html`, `defer`, guarded `window.Telegram?.`.)
-3. Link-move semantics: same Telegram id linking a SECOND email moves the link
+3. ~~Link-move semantics: same Telegram id linking a SECOND email moves the link
    (chosen for simplicity — one device, one account). Alternative is 409
-   "already linked" — confirm desired UX before T-B2.
+   "already linked" — confirm desired UX before T-B2.~~ RESOLVED: re-assign by
+   default — linking a Telegram id that is already linked to another user MOVES
+   the link to the newly authenticated user (less confronting, no 409 dead-end;
+   the previous user simply gets `TELEGRAM_NOT_LINKED` on next launch and can
+   re-link).
 4. No `query_id`/`answerWebAppQuery` usage in v1 — if push confirmations are
    wanted later, they become a T-B5.

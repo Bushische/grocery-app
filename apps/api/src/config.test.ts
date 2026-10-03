@@ -65,11 +65,47 @@ describe("loadConfig OAuth client credentials (T50)", () => {
   });
 });
 
+describe("loadConfig Telegram Mini App credentials (T59)", () => {
+  it("defaults to an empty bot token with the 24 h freshness window", () => {
+    const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    expect(config.telegramBotToken).toBe("");
+    expect(config.telegramAuthMaxAgeSeconds).toBe(86400);
+  });
+
+  it("reads the bot token and freshness window from the environment", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      TELEGRAM_BOT_TOKEN: "123456:ABC-DEF",
+      TELEGRAM_AUTH_MAX_AGE_SECONDS: "3600",
+    });
+    expect(config.telegramBotToken).toBe("123456:ABC-DEF");
+    expect(config.telegramAuthMaxAgeSeconds).toBe(3600);
+  });
+
+  it("rejects an empty bot token in production with an explicit error", () => {
+    const productionEnv = {
+      NODE_ENV: "production",
+      LOG_LEVEL: "silent",
+      JWT_SECRET: "test-production-secret",
+      CORS_ORIGIN: "https://grocery.example.com",
+    };
+    expect(() => loadConfig(productionEnv)).toThrow("TELEGRAM_BOT_TOKEN must be set in production");
+    expect(() => loadConfig({ ...productionEnv, TELEGRAM_BOT_TOKEN: "   " })).toThrow(
+      /TELEGRAM_BOT_TOKEN/,
+    );
+    expect(
+      loadConfig({ ...productionEnv, TELEGRAM_BOT_TOKEN: "123456:ABC-DEF" }).telegramBotToken,
+    ).toBe("123456:ABC-DEF");
+  });
+});
+
 describe("loadConfig CORS_ORIGIN production gate (T34)", () => {
   const productionEnv = {
     NODE_ENV: "production",
     LOG_LEVEL: "silent",
     JWT_SECRET: "test-production-secret",
+    TELEGRAM_BOT_TOKEN: "test-bot-token",
   };
 
   it("rejects an unset CORS_ORIGIN in production with an explicit error", () => {

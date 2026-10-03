@@ -23,6 +23,7 @@ import { listRoutes } from "./routes/lists";
 import { priceRoutes } from "./routes/prices";
 import { searchRoutes } from "./routes/search";
 import { userRoutes } from "./routes/users";
+import { telegramRoutes } from "./telegram/routes";
 import { checkUploadsWritable } from "./uploads-probe";
 
 export type AppDependencies = { db?: Db };
@@ -85,6 +86,10 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(priceRoutes);
   app.register(searchRoutes);
   app.register(aliceWebhookRoutes, { skillId: config.aliceSkillId });
+  app.register(telegramRoutes, {
+    botToken: config.telegramBotToken,
+    maxAgeSeconds: config.telegramAuthMaxAgeSeconds,
+  });
 
   return app;
 }

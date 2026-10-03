@@ -20,8 +20,10 @@ import {
  * Cookie contract from docs/API.md → Auth: HttpOnly; Secure; SameSite=Strict;
  * Path=/api/auth; Max-Age=2592000. Secure is unconditional — the app is only
  * ever reached over HTTPS (Cloudflare Tunnel) or http://localhost.
+ * Exported so the Telegram session/link endpoints (T59) issue byte-identical
+ * cookies instead of drifting into a second contract.
  */
-const REFRESH_COOKIE_OPTIONS = {
+export const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: true,
   sameSite: "strict",

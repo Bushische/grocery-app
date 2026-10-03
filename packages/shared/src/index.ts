@@ -416,6 +416,27 @@ export const oauthTokenResponseSchema = z.object({
 });
 export type OAuthTokenResponse = z.infer<typeof oauthTokenResponseSchema>;
 
+// --- Telegram Mini App linking (docs/TELEGRAM_PLAN.md → §2) ---
+
+/** Freshness window for Telegram `initData.auth_date` (24 h, docs/TELEGRAM_PLAN.md → §1). */
+export const TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
+
+/** Raw `window.Telegram.WebApp.initData` query string (signed by Telegram). */
+export const telegramInitDataSchema = z.string().min(1);
+export type TelegramInitData = z.infer<typeof telegramInitDataSchema>;
+
+/** Body of `POST /auth/telegram/session` — passwordless login from a linked device. */
+export const telegramSessionRequestSchema = z.object({ initData: telegramInitDataSchema });
+export type TelegramSessionRequest = z.infer<typeof telegramSessionRequestSchema>;
+
+/** Body of `POST /auth/telegram/link` — one-time email+password with Telegram binding. */
+export const telegramLinkRequestSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1),
+  initData: telegramInitDataSchema,
+});
+export type TelegramLinkRequest = z.infer<typeof telegramLinkRequestSchema>;
+
 // --- API tokens (docs/API.md → API tokens; docs/TASKS.md → T13) ---
 
 /** Prefix of long-lived AI-agent tokens (docs/PROJECT.md → Auth). */

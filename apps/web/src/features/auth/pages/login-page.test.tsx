@@ -80,3 +80,69 @@ describe("LoginPage", () => {
     expect(call?.body).toEqual({ email: "alex@example.com", password: "secret" });
   });
 });
+
+describe("LoginPage inside Telegram (one-time link, T60)", () => {
+  const INIT_DATA = "auth_date=1737000000&user=%7B%22id%22%3A279058397%7D&hash=abc";
+
+  function stubTelegramInitData(): void {
+    (window as unknown as { Telegram?: unknown }).Telegram = {
+      WebApp: { initData: INIT_DATA, ready: () => {}, expand: () => {} },
+    };
+  }
+
+  function clearTelegramBridge(): void {
+    (window as unknown as { Telegram?: unknown }).Telegram = undefined;
+  }
+
+  it("shows the link hint and posts to the link endpoint with initData", async () => {
+    stubTelegramInitData();
+    try {
+      const mock = createApiFetchMock();
+      mock.stub();
+      mock.on("POST", "/api/auth/telegram/link", () =>
+        json(200, { accessToken: "tg-token", user: USER }),
+      );
+      const user = userEvent.setup();
+
+      renderPage();
+      expect(screen.getByText(/Sign in once to link your Telegram account/)).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Email"), "alex@example.com");
+      await user.type(screen.getByLabelText("Password"), "secret");
+      await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+      await waitFor(() => expect(useAuthStore.getState().accessToken).toBe("tg-token"));
+      const call = mock.callsTo("POST", "/api/auth/telegram/link")[0];
+      expect(call?.body).toEqual({
+        email: "alex@example.com",
+        password: "secret",
+        initData: INIT_DATA,
+      });
+      expect(mock.callsTo("POST", "/api/auth/login")).toHaveLength(0);
+    } finally {
+      clearTelegramBridge();
+    }
+  });
+
+  it("shows the link error for wrong credentials (401) without a session", async () => {
+    stubTelegramInitData();
+    try {
+      const mock = createApiFetchMock();
+      mock.stub();
+      mock.on("POST", "/api/auth/telegram/link", () =>
+        json(401, { error: { code: "UNAUTHORIZED", message: "Invalid email or password" } }),
+      );
+      const user = userEvent.setup();
+
+      renderPage();
+      await user.type(screen.getByLabelText("Email"), "alex@example.com");
+      await user.type(screen.getByLabelText("Password"), "wrong");
+      await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+      expect(await screen.findByText("Invalid email or password.")).toBeInTheDocument();
+      expect(useAuthStore.getState().accessToken).toBeNull();
+    } finally {
+      clearTelegramBridge();
+    }
+  });
+});

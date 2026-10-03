@@ -8,6 +8,9 @@
     <!-- iOS Add to Home Screen icon (iOS ignores manifest icons). -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>My Groceries</title>
+    <!-- Telegram Mini App bridge (T60): plain browsers ignore the missing
+         window.Telegram (all access is guarded); the app works without it. -->
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
   </head>
   <body>
     <div id="root"></div>

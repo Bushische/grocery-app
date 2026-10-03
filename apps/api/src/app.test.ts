@@ -108,6 +108,7 @@ describe("uploads writability self-check (T38)", () => {
               LOG_LEVEL: "silent",
               JWT_SECRET: "test-only-production-secret",
               CORS_ORIGIN: "https://grocery.example.com",
+              TELEGRAM_BOT_TOKEN: "test-bot-token",
               UPLOADS_PATH: dir,
             }),
           ),
@@ -145,6 +146,7 @@ describe("uploads writability self-check (T38)", () => {
         LOG_LEVEL: "silent",
         JWT_SECRET: "test-only-production-secret",
         CORS_ORIGIN: "https://grocery.example.com",
+        TELEGRAM_BOT_TOKEN: "test-bot-token",
         UPLOADS_PATH: dir,
       }),
     );
@@ -167,6 +169,7 @@ describe("production boot with CORS_ORIGIN (T34)", () => {
         LOG_LEVEL: "silent",
         JWT_SECRET: "test-only-production-secret",
         CORS_ORIGIN: "https://grocery.example.com",
+        TELEGRAM_BOT_TOKEN: "test-bot-token",
         UPLOADS_PATH: uploadsDir,
       }),
     );
