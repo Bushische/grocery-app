@@ -121,8 +121,17 @@ describe("extractCommandText (T62)", () => {
   });
 
   it("strips leading /commands (/start, /buy@bot milk)", () => {
-    expect(extractCommandText("/start")).toEqual({ text: "", addressed: true });
+    expect(extractCommandText("/start")).toEqual({ text: "start", addressed: true });
     expect(extractCommandText("/buy@mybot 2 milk")).toEqual({ text: "2 milk", addressed: true });
+  });
+
+  it("keeps bare informational commands, still strips bare grocery verbs (T72)", () => {
+    expect(extractCommandText("/list")).toEqual({ text: "list", addressed: true });
+    expect(extractCommandText("/lists")).toEqual({ text: "lists", addressed: true });
+    expect(extractCommandText("/help")).toEqual({ text: "help", addressed: true });
+    // Bare verbs strip to "" so /buy-as-reply keeps consuming the quote (T65).
+    expect(extractCommandText("/buy")).toEqual({ text: "", addressed: true });
+    expect(extractCommandText("/bought")).toEqual({ text: "", addressed: true });
   });
 });
 
@@ -230,9 +239,25 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
     sent = [];
     await postUpdate(messageUpdate({ text: "/start" }));
     expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("/lists");
     sent = [];
     await postUpdate(messageUpdate({ text: "@bot /start", chatType: "group", chatId: 201 }));
     expect(sent).toHaveLength(0);
+  });
+
+  it("answers bare /list and /lists end to end (T72)", async () => {
+    sent = [];
+    await postUpdate(messageUpdate({ text: "/list" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("TG List");
+    sent = [];
+    await postUpdate(messageUpdate({ text: "/lists" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("TG List");
+    sent = [];
+    await postUpdate(messageUpdate({ text: "/list", chatType: "group", chatId: 202 }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("TG List");
   });
 });
 

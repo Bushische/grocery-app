@@ -50,7 +50,10 @@ export type ExtractedCommand = { text: string; addressed: boolean };
  * Extracts the candidate command from a message: strips a leading @mention
  * and a leading /command (`/start`, `/buy@bot milk`). `addressed` tells
  * whether the sender explicitly addressed the bot — group chatter without it
- * stays silent (never spam a group).
+ * stays silent (never spam a group). A bare informational command keeps its
+ * word (`/list` → `list` — otherwise the dialog sees `""` and clarifies);
+ * bare grocery verbs still strip to `""` so `/buy`-as-reply keeps consuming
+ * the quoted products (T65) instead of adding an empty-named item.
  */
 export function extractCommandText(rawText: string): ExtractedCommand {
   let text = rawText.trim();
@@ -60,10 +63,17 @@ export function extractCommandText(rawText: string): ExtractedCommand {
     text = text.slice(mention[0].length).trim();
     addressed = true;
   }
-  const slash = text.match(/^\/[\w_]+(?:@[\w_]+)?\s*/u);
+  const slash = text.match(/^\/([\w_]+)(?:@[\w_]+)?\s*/u);
   if (slash) {
-    text = text.slice(slash[0].length).trim();
+    const word = (slash[1] ?? "").toLowerCase();
+    const rest = text.slice(slash[0].length).trim();
     addressed = true;
+    // Telegram bot commands are latin-only, so only these four words can
+    // arrive whole — grocery verbs stay stripped (see the doc comment).
+    if (rest === "" && ["list", "lists", "help", "start"].includes(word)) {
+      return { text: word, addressed };
+    }
+    text = rest;
   }
   return { text, addressed };
 }
