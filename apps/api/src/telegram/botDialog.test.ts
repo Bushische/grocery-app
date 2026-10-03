@@ -323,7 +323,7 @@ describe("chat default + commands (T69)", () => {
     );
     expect(
       (await answerText(multiUser, "buy t69-coffee-beans", true, "", {}, chat)) ?? "",
-    ).toContain("/use");
+    ).toContain("/use_list");
   });
 
   it("shows a locked default the caller cannot access", async () => {
@@ -343,9 +343,20 @@ describe("chat default + commands (T69)", () => {
   });
 
   it("helps on /help in private and stays silent in groups", async () => {
-    expect((await answerText(soloUser, "help")) ?? "").toContain("/lists");
-    expect((await answerText(soloUser, "/start")) ?? "").toContain("/lists");
+    expect((await answerText(soloUser, "help")) ?? "").toContain("/grocery_lists");
+    expect((await answerText(soloUser, "/start")) ?? "").toContain("/grocery_lists");
     expect(await answerText(soloUser, "help", false)).toBeUndefined();
+  });
+
+  it("answers the BotFather names grocery_lists + use_list (T73)", async () => {
+    const chat = `chat:t73-${createId()}`;
+    const lists = (await answerText(multiUser, "grocery_lists", true, "", {}, chat)) ?? "";
+    expect(lists).toContain("First");
+    expect(lists).toContain("/use_list");
+    expect(await answerText(multiUser, "use_list First", true, "", {}, chat)).toContain("First");
+    expect(await answerText(multiUser, "buy t73-fig", true, "", {}, chat)).toBe(
+      'Added "t73-fig" to "First".',
+    );
   });
 });
 

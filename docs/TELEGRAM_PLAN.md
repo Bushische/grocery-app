@@ -203,9 +203,9 @@ Mini App link as identity — no second account system.
   list per `chat_id` (`telegram_chat_defaults`: last writer wins, setter
   stored), shared by everyone in the chat. Chain: `… в <List>` / `… in
   <List>` suffix (also remembered) → chat default → single accessible list
-  → ask once (`/use <name>` or a tap answers, no retyping). `/lists` shows
-  the caller's lists with the default marked (●, or 🔒 when the caller
-  cannot access it); `/use <name>` and button taps store it (membership
+  → ask once (`/use_list <name>` or a tap answers, no retyping). `/grocery_lists`
+  shows the caller's lists with the default marked (●, or 🔒 when the caller
+  cannot access it); `/use_list <name>` and button taps store it (membership
   required); `/help` explains. Titles are NOT secret — shown unfiltered and
   🔒-marked when inaccessible; access is enforced at execution (EDITOR+ for
   mutations, membership for reads), never by hiding titles.
@@ -220,9 +220,9 @@ Mini App link as identity — no second account system.
   replace JEV without touching webhook/dialog/services. `EXTRACTION_BACKEND`
   switches backends (default deterministic = zero external calls).
 - **Ops (manual):** `setWebhook` curl after each deploy (URL never changes, so
-  once per bot in practice) with `allowed_updates=["message","callback_query"]`,
+  once per bot in practice) with   `allowed_updates=["message","callback_query"]`,
   `/setprivacy` Enable + re-add (privacy ON — only `/commands`, `@mentions`,
   and `/command`-replies arrive), `/setcommands` with `buy`, `list`, `bought`,
-  `unbuy`, `lists`, `use`, `help` for autocomplete.
+  `unbuy`, `grocery_lists`, `use_list`, `help` for autocomplete.
   Explicitly out: message editing/deletion, payments.
 

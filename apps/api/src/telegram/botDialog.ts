@@ -223,19 +223,20 @@ function noListsText(lang: Lang): string {
 
 function helpText(lang: Lang): string {
   return lang === "ru"
-    ? "Команды: /lists — списки и текущий список чата; /use <название> — выбрать список чата. Дальше просто «купи молоко». Ещё: «что купить», «купили молоко», «верни молоко»."
-    : 'Commands: /lists — lists and this chat\'s default; /use <name> — set it. Then just "buy milk". Also "what to buy", "bought milk", "unbuy milk".';
+    ? "Команды: /grocery_lists — списки и текущий список чата; /use_list <название> — выбрать список чата. Дальше просто «купи молоко». Ещё: «что купить», «купили молоко», «верни молоко»."
+    : 'Commands: /grocery_lists — lists and this chat\'s default; /use_list <name> — set it. Then just "buy milk". Also "what to buy", "bought milk", "unbuy milk".';
 }
 
 /**
- * Explicit chat commands (T69, slash already stripped by the webhook):
- * `/lists` shows the caller's lists with the chat default marked (●, or 🔒
- * when the caller cannot access it — titles are not secret), `/use <name>`
- * stores the shared default (membership required, last writer wins;
- * quoted products are NOT consumed — resend the items after switching),
- * `/help`+`/start` explain. Returns undefined for non-commands so the
- * grocery pipeline runs. `/help` is private-only (groups stay silent);
- * `/lists`+`/use` answer wherever they were addressed.
+ * Explicit chat commands (T69/T73, slash already stripped by the webhook):
+ * `/grocery_lists` (alias `/lists`) shows the caller's lists with the chat
+ * default marked (●, or 🔒 when the caller cannot access it — titles are not
+ * secret), `/use_list <name>` (alias `/use`) stores the shared default
+ * (membership required, last writer wins; quoted products are NOT consumed —
+ * resend the items after switching), `/help`+`/start` explain. Returns
+ * undefined for non-commands so the grocery pipeline runs. `/help` is
+ * private-only (groups stay silent); `/grocery_lists`+`/use_list` answer
+ * wherever they were addressed.
  */
 function answerChatCommand(
   db: Db,
@@ -257,7 +258,7 @@ function answerChatCommand(
     if (!isPrivate) return undefined;
     return { silent: false, text: helpText(lang) };
   }
-  if (normalized === "lists" || normalized === "списки") {
+  if (normalized === "lists" || normalized === "grocery_lists" || normalized === "списки") {
     const accessible = listListsForUser(db, userId);
     if (accessible.length === 0) return { silent: false, text: noListsText(lang) };
     const chatDefault = getChatDefaultWithTitle(db, chatId);
@@ -281,12 +282,12 @@ function answerChatCommand(
       silent: false,
       text:
         lang === "ru"
-          ? `Списки: ${names}.${current} Переключить: /use <название>.${locked}`
-          : `Lists: ${names}.${current} Switch: /use <name>.${locked}`,
+          ? `Списки: ${names}.${current} Переключить: /use_list <название>.${locked}`
+          : `Lists: ${names}.${current} Switch: /use_list <name>.${locked}`,
       choices: accessible.map((list) => ({ listId: list.id, title: list.title })),
     };
   }
-  const useMatch = normalized.match(/^(use|используй|выбери)\s+(.+)$/su);
+  const useMatch = normalized.match(/^(use_list|use|используй|выбери)\s+(.+)$/su);
   if (useMatch) {
     const displayName = trimmed.slice(trimmed.search(/\s/u)).trim() || (useMatch[2] ?? "").trim();
     const accessible = listListsForUser(db, userId);
@@ -300,8 +301,8 @@ function answerChatCommand(
         silent: false,
         text:
           lang === "ru"
-            ? `Не нашёл «${displayName}» среди ваших списков. Покажите их: /lists.`
-            : `Couldn't find "${displayName}" among your lists. Show them: /lists.`,
+            ? `Не нашёл «${displayName}» среди ваших списков. Покажите их: /grocery_lists.`
+            : `Couldn't find "${displayName}" among your lists. Show them: /grocery_lists.`,
       };
     }
     setChatDefault(db, chatId, matched.id, userId);
@@ -359,8 +360,8 @@ export async function handleTelegramChat(
       silent: false,
       text:
         lang === "ru"
-          ? `У вас несколько списков: ${names}. Уточните, например: «купи молоко в ${resolution.lists[0]?.title}» или «/use ${resolution.lists[0]?.title}».${locked}`
-          : `You have several lists: ${names}. Specify one, e.g. "buy milk in ${resolution.lists[0]?.title}" or "/use ${resolution.lists[0]?.title}".${locked}`,
+          ? `У вас несколько списков: ${names}. Уточните, например: «купи молоко в ${resolution.lists[0]?.title}» или «/use_list ${resolution.lists[0]?.title}».${locked}`
+          : `You have several lists: ${names}. Specify one, e.g. "buy milk in ${resolution.lists[0]?.title}" or "/use_list ${resolution.lists[0]?.title}".${locked}`,
       choices: resolution.lists.map((list) => ({ listId: list.id, title: list.title })),
     };
   }

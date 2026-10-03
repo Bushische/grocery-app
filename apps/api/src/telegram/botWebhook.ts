@@ -68,9 +68,9 @@ export function extractCommandText(rawText: string): ExtractedCommand {
     const word = (slash[1] ?? "").toLowerCase();
     const rest = text.slice(slash[0].length).trim();
     addressed = true;
-    // Telegram bot commands are latin-only, so only these four words can
+    // Telegram bot commands are latin-only, so only these words can
     // arrive whole — grocery verbs stay stripped (see the doc comment).
-    if (rest === "" && ["list", "lists", "help", "start"].includes(word)) {
+    if (rest === "" && ["list", "lists", "grocery_lists", "help", "start"].includes(word)) {
       return { text: word, addressed };
     }
     text = rest;
@@ -188,7 +188,7 @@ async function handleCallbackChoice(
       request,
       sender,
       chatId,
-      "Список недоступен — выберите другой: /lists.\nThat list is gone — pick another: /lists.",
+      "Список недоступен — выберите другой: /grocery_lists.\nThat list is gone — pick another: /grocery_lists.",
       miniAppUrl,
     );
     return;

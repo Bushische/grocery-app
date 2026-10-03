@@ -128,6 +128,10 @@ describe("extractCommandText (T62)", () => {
   it("keeps bare informational commands, still strips bare grocery verbs (T72)", () => {
     expect(extractCommandText("/list")).toEqual({ text: "list", addressed: true });
     expect(extractCommandText("/lists")).toEqual({ text: "lists", addressed: true });
+    expect(extractCommandText("/grocery_lists")).toEqual({
+      text: "grocery_lists",
+      addressed: true,
+    });
     expect(extractCommandText("/help")).toEqual({ text: "help", addressed: true });
     // Bare verbs strip to "" so /buy-as-reply keeps consuming the quote (T65).
     expect(extractCommandText("/buy")).toEqual({ text: "", addressed: true });
@@ -239,7 +243,7 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
     sent = [];
     await postUpdate(messageUpdate({ text: "/start" }));
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.text).toContain("/lists");
+    expect(sent[0]?.text).toContain("/grocery_lists");
     sent = [];
     await postUpdate(messageUpdate({ text: "@bot /start", chatType: "group", chatId: 201 }));
     expect(sent).toHaveLength(0);
@@ -252,6 +256,10 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
     expect(sent[0]?.text).toContain("TG List");
     sent = [];
     await postUpdate(messageUpdate({ text: "/lists" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("TG List");
+    sent = [];
+    await postUpdate(messageUpdate({ text: "/grocery_lists" }));
     expect(sent).toHaveLength(1);
     expect(sent[0]?.text).toContain("TG List");
     sent = [];

@@ -222,7 +222,7 @@ Then in BotFather: `/setprivacy` → pick the bot → **Enable** (privacy ON: th
 gets `/commands`, `@mentions`, and `/command`-replies with the quoted text — plain
 group chatter never reaches it, which is the point), then **re-add the bot to every
 group** (the flip does not apply in place). Optional: `/setcommands` with `buy`,
-`list`, `bought`, `unbuy`, `lists`, `use`, `help` for input autocomplete
+`list`, `bought`, `unbuy`, `grocery_lists`, `use_list`, `help` for input autocomplete
 (`callback_query` taps need `["message","callback_query"]` in the `setWebhook`
 above, otherwise the inline list buttons arrive nowhere).
 
