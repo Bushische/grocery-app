@@ -103,17 +103,23 @@ Values that must be real (not placeholders) in production:
 | `OAUTH_CLIENT_SECRET` | Alice linking secret | `openssl rand -base64 32` output; must EXACTLY match Yandex console «Секрет приложения» |
 | `ALICE_SKILL_ID` | Our skill id | dialogs.yandex.ru → skill → «Общие сведения» |
 | `TELEGRAM_BOT_TOKEN` | Telegram Mini App login | BotFather (`@BotFather` → `/newbot`) → paste the token. The api validates Mini App `initData` signatures against it (`POST /auth/telegram/session` for passwordless login, `/link` for the one-time email+password binding). After the stack is up, set the bot's Menu Button URL to `https://grocery.buyontheway.xyz/` (the same web build runs inside Telegram; no new infra). |
-| `TELEGRAM_WEBHOOK_SECRET` | Telegram chat commands | `openssl rand -base64 32` output. Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; the same value goes into the `setWebhook` call (Step 8b). |
+| `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Mini App login freshness | `86400` (default = 24 h). Optional. |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram chat commands | `openssl rand -hex 32` output (Telegram allows only `A-Z a-z 0-9 _ -`, 1–256 chars — NOT base64: `+ / =` are rejected with "secret token contains illegal characters"). Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; the same value goes into the `setWebhook` call (Step 8b). |
 | `TELEGRAM_MINI_APP_URL` | Open-app button in chat replies | `https://grocery.buyontheway.xyz/` (public URL of this same web build). |
 | `EXTRACTION_BACKEND` | Chat action extraction (T66) | `deterministic` (default — regex + Alice NLU, zero external calls) or `jev` (unstructured messages judged by TypeSafe JEV; then `OPENROUTER_API_KEY` below is required). |
 | `OPENROUTER_API_KEY` | JEV via OpenRouter | OpenRouter dashboard → API keys. Required iff `EXTRACTION_BACKEND=jev` (fail-fast at boot, same pattern as the bot token). Never logged. |
 | `JEV_MODEL` | Pinned JEV release | `typesafe/jev-1.13` (pinned, not the `latest` alias, so tuned confidence thresholds stay stable). |
+| `JEV_TIMEOUT_MS` | JEV verdict timeout | `5000` (default) — slow verdicts degrade to the clarify reply. |
+| `JEV_CONFIDENCE_THRESHOLD` | JEV act-vs-clarify threshold | `0.6` (default, 0–1) — below it the bot clarifies instead of acting. |
+| `LOG_LEVEL` | Api log verbosity | `info` (default). Set `debug` while troubleshooting. |
 | `TUNNEL_TOKEN` | Cloudflare connector token | Cloudflare Zero Trust → Networks → Tunnels → Install connector |
 | `WEB_PORT` | Host port for the web container | `8080` (must match the tunnel's public-hostname target `web:8080`) |
 
-Boot behavior if something is wrong: empty/unset `JWT_SECRET`, `CORS_ORIGIN`, or
-`TELEGRAM_BOT_TOKEN` → the api **refuses to boot** (by design — check `logs api`,
-Step 6). Missing Alice trio → the stack boots with dev defaults but **account
+Boot behavior if something is wrong: empty/unset `JWT_SECRET`, `CORS_ORIGIN`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, or `TELEGRAM_MINI_APP_URL`
+→ the api **refuses to boot** (by design — check `logs api`, Step 6).
+`EXTRACTION_BACKEND=jev` without `OPENROUTER_API_KEY` → same fail-fast.
+Missing Alice trio → the stack boots with dev defaults but **account
 linking will not work**.
 
 ## Step 5 — Laptop: transfer images + compose file to the NAS
@@ -203,6 +209,8 @@ unless the secret rotates). On the laptop:
 
 ```bash
 BOT_TOKEN='<paste>' ; WEBHOOK_SECRET='<same-as-TELEGRAM_WEBHOOK_SECRET-on-NAS>'
+# Secret must be 1-256 chars of A-Z a-z 0-9 _ - only (generate: openssl rand -hex 32).
+# Base64 (+ / =) is rejected with "secret token contains illegal characters".
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
   --data-urlencode "url=https://grocery.buyontheway.xyz/api/telegram/bot-webhook" \
   --data-urlencode "secret_token=${WEBHOOK_SECRET}" \

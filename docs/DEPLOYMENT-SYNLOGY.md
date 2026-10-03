@@ -112,17 +112,35 @@ SSH in: `ssh <your-ssh-user>@<nas-ip>` — everything below runs in `~/grocery`:
    ```bash
    node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
    ```
-2. **Create `~/grocery/.env` on the NAS**:
-   ```bash
-   cd ~/grocery
-   cat > .env << 'EOF'
-   JWT_SECRET=<paste from step 1>
-   TUNNEL_TOKEN=<eyJ… token from §3 step 3>
-   CORS_ORIGIN=https://grocery.<your-domain>
-   EOF
-   chmod 600 .env
-   ```
-   (`WEB_PORT` is optional — 8080 is the default and what the tunnel routes to.)
+2. **Create `~/grocery/.env` on the NAS** (full variable list — same as
+   `.env.prod.example` in the repo; never commit this file):
+    ```bash
+    cd ~/grocery
+    cat > .env << 'EOF'
+    NODE_ENV=production
+    JWT_SECRET=<paste from step 1>
+    CORS_ORIGIN=https://grocery.<your-domain>
+    LOG_LEVEL=info
+    OAUTH_CLIENT_ID=alice
+    OAUTH_CLIENT_SECRET=<must EXACTLY match Yandex console>
+    ALICE_SKILL_ID=<from dialogs.yandex.ru>
+    TELEGRAM_BOT_TOKEN=<from BotFather>
+    TELEGRAM_AUTH_MAX_AGE_SECONDS=86400
+    TELEGRAM_WEBHOOK_SECRET=<openssl rand -hex 32; Telegram allows only A-Z a-z 0-9 _ ->
+    TELEGRAM_MINI_APP_URL=https://grocery.<your-domain>/
+    EXTRACTION_BACKEND=deterministic
+    OPENROUTER_API_KEY=<required iff EXTRACTION_BACKEND=jev>
+    JEV_MODEL=typesafe/jev-1.13
+    JEV_TIMEOUT_MS=5000
+    JEV_CONFIDENCE_THRESHOLD=0.6
+    WEB_PORT=8080
+    TUNNEL_TOKEN=<eyJ… token from §3 step 3>
+    EOF
+    chmod 600 .env
+    ```
+    (`JWT_SECRET`, `CORS_ORIGIN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
+    `TELEGRAM_MINI_APP_URL` are fail-fast required — the api refuses to boot without
+    them. Missing Alice trio boots with dev defaults but account linking won't work.)
 3. **Start:**
    ```bash
    /usr/local/bin/docker compose -f docker-compose.prod.yml --profile tunnel --env-file .env up -d

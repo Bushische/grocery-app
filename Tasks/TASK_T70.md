@@ -1,0 +1,6 @@
+# T70 — Inline tap-to-select: callback_query + choice buttons
+- **Goal:** `need_choice` reply carries tap-a-list buttons next to the open-app button.
+- **Inputs:** T69 (need_choice path), `apps/api/src/telegram/protocol.ts`, `apps/api/src/telegram/botApi.ts` (`buildSendMessagePayload`), `apps/api/src/telegram/botWebhook.ts`.
+- **Outputs:** `callback_query` schema (`id`, `from`, `message.chat`, `data="tg-use:<listId>"`); sender extended with list-choice rows + `answerCallbackQuery`; webhook verifies secret first (same 401), validates caller link + membership, stores shared chat default, answers callback (no spinner hang), confirms in chat ("Alice switched this chat to «Dacha»" / bilingual); unlinked tap → link prompt; unknown/inaccessible list id → unavailable reply (titles stay visible per T69 rule); button taps NEVER mutate items, only set the default; `setWebhook` re-registered with `allowed_updates=["message","callback_query"]`.
+- **Definition of Done:** Tap stores default → next bare `/buy` succeeds; foreign/deleted list id degrades to unavailable text, no 500/ack-storm; unlinked tap gets link prompt; `botWebhook.test.ts` + `botApi.test.ts` pin payload shape, secret check order, and ack-always; full gate green.
+- **Dependencies:** T69.

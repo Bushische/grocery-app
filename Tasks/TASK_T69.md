@@ -1,0 +1,6 @@
+# T69 — Chat default resolution + /lists /use /help commands (text)
+- **Goal:** Bare `/buy milk` lands on the chat's remembered list; `/lists` + `/use <name>` manage it with text only.
+- **Inputs:** T68 (`chatDefaults.ts`), `apps/api/src/telegram/botDialog.ts` (`resolveTelegramList`), `apps/api/src/alice/links.ts` (`matchListChoice`).
+- **Outputs:** `resolveTelegramList(db, userId, chatId, command)` with chain suffix → chat default → single list → need_choice; text commands `/lists` (aliases `списки`), `/use <name>` (`используй`, `выбери`), `/help`+`/start` (bilingual, EN+RU); any explicit suffix/`/use` stores the shared default; titles shown WITHOUT membership filtering (not secret) — chat default inaccessible to the caller is shown marked 🔒 unavailable, access enforced at execution (`noRights`/`need_choice`), never by hiding titles.
+- **Definition of Done:** Multi-list chat: 1st `/buy` asks once, `/use <name>` confirms + stores, 2nd bare `/buy` succeeds silently; `/lists` marks current default with `●` (🔒 when caller lacks access); stale default falls through without 500; `botDialog.test.ts` pins hit/miss/stale/suffix-stores/`/lists`/`/use`/help; full gate green.
+- **Dependencies:** T68.

@@ -76,15 +76,25 @@ Edit `.env` (it is gitignored; keep it off the repo):
 | Variable | How to set | Notes |
 |---|---|---|
 | `JWT_SECRET` | `openssl rand -hex 48` (run on the laptop, paste the value) | **Required.** The api refuses to boot in production without a non-default value. Rotating it later is safe: existing refresh tokens are opaque server-side rows, so clients silently re-login via `/api/auth/refresh`. |
-| `CORS_ORIGIN` | the public origin, e.g. `https://grocery.example.com` | Must exactly match the origin the app is served from (§7). Comma-separated list allowed. Wrong value = the SPA loads but every API call fails CORS. |
+| `CORS_ORIGIN` | the public origin, e.g. `https://grocery.example.com` | **Required.** Must exactly match the origin the app is served from (§7). Comma-separated list allowed. Wrong value = the SPA loads but every API call fails CORS. |
+| `OAUTH_CLIENT_ID` | e.g. `alice` — must match Yandex console «Идентификатор приложения» | Boots with dev default, but Alice account linking will not work without the real value. |
+| `OAUTH_CLIENT_SECRET` | `openssl rand -base64 32` output; must EXACTLY match Yandex console «Секрет приложения» | Boots with dev default, but Alice account linking will not work without the real value. |
+| `ALICE_SKILL_ID` | dialogs.yandex.ru → skill → «Общие сведения» | Boots with dev default, but the webhook rejects everything without the real value. |
 | `TELEGRAM_BOT_TOKEN` | the bot token from BotFather (`@BotFather` → `/newbot`) | **Required.** The api refuses to boot in production without it (same fail-fast as `JWT_SECRET`/`CORS_ORIGIN`). It validates Telegram Mini App `initData` signatures (`POST /auth/telegram/session|link`): without the real value, Telegram auto-login cannot work. After setting it, point the bot's Menu Button URL at `https://grocery.<your-domain>/` — no new infra, the same web build is served inside Telegram. |
-| `TELEGRAM_WEBHOOK_SECRET` | `openssl rand -base64 32` output | **Required.** Telegram sends it as `X-Telegram-Bot-Api-Secret-Token` on every Bot API webhook call (chat commands, T62–T64); the same value goes into the `setWebhook` call (`DEPLOYMENT_UPDATE_SYNOLOGY.md` Step 8b). |
+| `TELEGRAM_AUTH_MAX_AGE_SECONDS` | `86400` (default = 24 h) | Freshness window for Mini App `initData.auth_date`. Optional. |
+| `TELEGRAM_WEBHOOK_SECRET` | `openssl rand -hex 32` output (Telegram allows only `A-Z a-z 0-9 _ -`, so NOT base64) | **Required.** Telegram sends it as `X-Telegram-Bot-Api-Secret-Token` on every Bot API webhook call (chat commands, T62–T64); the same value goes into the `setWebhook` call (`DEPLOYMENT_UPDATE_SYNOLOGY.md` Step 8b). |
 | `TELEGRAM_MINI_APP_URL` | the public origin, e.g. `https://grocery.example.com/` | **Required.** Public Mini App URL for the open-app button in chat replies. |
+| `EXTRACTION_BACKEND` | `deterministic` (default) or `jev` | Chat action extraction (T66). `deterministic` = regex + Alice NLU, zero external calls. `jev` = unstructured messages judged by TypeSafe JEV via OpenRouter. |
+| `OPENROUTER_API_KEY` | OpenRouter dashboard → API keys | **Required iff `EXTRACTION_BACKEND=jev`** (fail-fast at boot). Never logged. |
+| `JEV_MODEL` | `typesafe/jev-1.13` (pinned, default) | Pinned JEV release, not the `latest` alias, so tuned thresholds stay stable. |
+| `JEV_TIMEOUT_MS` | `5000` (default) | JEV verdict timeout — slow verdicts degrade to the clarify reply. |
+| `JEV_CONFIDENCE_THRESHOLD` | `0.6` (default, 0–1) | Below it the bot clarifies instead of acting. |
 | `DATABASE_PATH` | `/data/grocery.db` (default) | Fixed by the compose file; don't change. |
 | `UPLOADS_PATH` | `/data/images` (default) | Fixed by the compose file; don't change. |
 | `WEB_PORT` | `8080` | LAN port nginx listens on (host side). |
 | `LOG_LEVEL` | `info` | Set `debug` while troubleshooting. |
 | `TUNNEL_TOKEN` | from the Cloudflare dashboard (§7) | Required only for the `tunnel` profile. |
+| `API_IMAGE` / `WEB_IMAGE` | e.g. `grocery-api:2026-09-27` | Optional. Date-tagged images for rollback-capable releases (§11). Defaults are `:latest`. |
 
 `chmod 600 .env`.
 
