@@ -89,6 +89,8 @@ describe("loadConfig Telegram Mini App credentials (T59)", () => {
       LOG_LEVEL: "silent",
       JWT_SECRET: "test-production-secret",
       CORS_ORIGIN: "https://grocery.example.com",
+      TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+      TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
     };
     expect(() => loadConfig(productionEnv)).toThrow("TELEGRAM_BOT_TOKEN must be set in production");
     expect(() => loadConfig({ ...productionEnv, TELEGRAM_BOT_TOKEN: "   " })).toThrow(
@@ -100,12 +102,56 @@ describe("loadConfig Telegram Mini App credentials (T59)", () => {
   });
 });
 
+describe("loadConfig Telegram chat credentials (T62)", () => {
+  const productionEnv = {
+    NODE_ENV: "production",
+    LOG_LEVEL: "silent",
+    JWT_SECRET: "test-production-secret",
+    CORS_ORIGIN: "https://grocery.example.com",
+    TELEGRAM_BOT_TOKEN: "123456:ABC-DEF",
+  };
+
+  it("defaults the webhook secret and Mini App URL to empty outside production", () => {
+    const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    expect(config.telegramWebhookSecret).toBe("");
+    expect(config.telegramMiniAppUrl).toBe("");
+  });
+
+  it("reads the webhook secret and Mini App URL from the environment", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      TELEGRAM_WEBHOOK_SECRET: "wh-secret",
+      TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
+    });
+    expect(config.telegramWebhookSecret).toBe("wh-secret");
+    expect(config.telegramMiniAppUrl).toBe("https://grocery.example.com/");
+  });
+
+  it("rejects empty webhook secret / Mini App URL in production", () => {
+    expect(() => loadConfig(productionEnv)).toThrow(
+      "TELEGRAM_WEBHOOK_SECRET must be set in production",
+    );
+    expect(() => loadConfig({ ...productionEnv, TELEGRAM_WEBHOOK_SECRET: "s" })).toThrow(
+      "TELEGRAM_MINI_APP_URL must be set in production",
+    );
+    const config = loadConfig({
+      ...productionEnv,
+      TELEGRAM_WEBHOOK_SECRET: "s",
+      TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
+    });
+    expect(config.telegramWebhookSecret).toBe("s");
+  });
+});
+
 describe("loadConfig CORS_ORIGIN production gate (T34)", () => {
   const productionEnv = {
     NODE_ENV: "production",
     LOG_LEVEL: "silent",
     JWT_SECRET: "test-production-secret",
     TELEGRAM_BOT_TOKEN: "test-bot-token",
+    TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+    TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
   };
 
   it("rejects an unset CORS_ORIGIN in production with an explicit error", () => {

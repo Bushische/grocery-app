@@ -103,6 +103,8 @@ Values that must be real (not placeholders) in production:
 | `OAUTH_CLIENT_SECRET` | Alice linking secret | `openssl rand -base64 32` output; must EXACTLY match Yandex console «Секрет приложения» |
 | `ALICE_SKILL_ID` | Our skill id | dialogs.yandex.ru → skill → «Общие сведения» |
 | `TELEGRAM_BOT_TOKEN` | Telegram Mini App login | BotFather (`@BotFather` → `/newbot`) → paste the token. The api validates Mini App `initData` signatures against it (`POST /auth/telegram/session` for passwordless login, `/link` for the one-time email+password binding). After the stack is up, set the bot's Menu Button URL to `https://grocery.buyontheway.xyz/` (the same web build runs inside Telegram; no new infra). |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram chat commands | `openssl rand -base64 32` output. Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; the same value goes into the `setWebhook` call (Step 8b). |
+| `TELEGRAM_MINI_APP_URL` | Open-app button in chat replies | `https://grocery.buyontheway.xyz/` (public URL of this same web build). |
 | `TUNNEL_TOKEN` | Cloudflare connector token | Cloudflare Zero Trust → Networks → Tunnels → Install connector |
 | `WEB_PORT` | Host port for the web container | `8080` (must match the tunnel's public-hostname target `web:8080`) |
 
@@ -190,6 +192,29 @@ If check 2 fails right after deploy: purge the Cloudflare edge cache for that UR
 retry with `curl -H 'Cache-Control: no-cache'`) — stale edge cache is the usual suspect,
 not the deploy. If check 3 returns the SPA: you transferred an old web image — rebuild
 (Step 2) and re-transfer (Step 5).
+
+## Step 8b — Telegram Bot API webhook (chat commands, T62–T64)
+
+One-time per bot (the URL never changes, so no need to repeat on later deploys
+unless the secret rotates). On the laptop:
+
+```bash
+BOT_TOKEN='<paste>' ; WEBHOOK_SECRET='<same-as-TELEGRAM_WEBHOOK_SECRET-on-NAS>'
+curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+  --data-urlencode "url=https://grocery.buyontheway.xyz/api/telegram/bot-webhook" \
+  --data-urlencode "secret_token=${WEBHOOK_SECRET}" \
+  --data-urlencode 'allowed_updates=["message"]'
+# → {"ok":true, ...}
+```
+
+Then in BotFather: `/setprivacy` → pick the bot → **Disable**, so it hears plain
+`buy apples` in groups (otherwise it only sees `/commands` and mentions).
+Optional: `/setcommands` with `buy`, `list`, `bought`, `unbuy` for input hints.
+
+Verify: message the bot `buy apples` in a private chat → it replies and the item
+appears in the list; an unlinked sender gets the link prompt instead. In a group,
+plain `buy apples` is heard only with privacy OFF; off-topic chatter gets no reply
+(by design — check api logs, not the chat, when diagnosing silence).
 
 ## Step 9 — After a successful deploy
 

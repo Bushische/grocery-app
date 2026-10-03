@@ -1,0 +1,6 @@
+# T63 — Telegram chat grocery intents (add/list/bought/unbuy, EN+RU)
+- **Goal:** "buy apples" in a chat lands in the grocery list; every answer offers the Mini App button.
+- **Inputs:** T62 (webhook + sender + gating), T8/T9 (`smartAddItem`/`moveItem`, T48 top-of-bought), Alice T52 (`parseGroceryIntent`, `findItemBySpokenName`, list-title matching in `links.ts`), `listService.listListsForUser`.
+- **Outputs:** `apps/api/src/telegram/botDialog.ts` (EN verbs mapped onto Alice NLU — `buy/add/купи→добавь`, `bought/done→купили`, `unbuy→верни` — then shared parsing/matching; list resolution: single accessible list auto, `… в <List>/in <List>` suffix match, else ask-with-names; per-message language: Cyrillic→RU else EN; unknown: help in private, silence in groups; EDITOR+ enforced for mutations, VIEWER-readable list); replies carry the open-app `web_app` button when `TELEGRAM_MINI_APP_URL` is set.
+- **Definition of Done:** inject test per intent EN+RU (add creates via smart-add incl. re-activation, list caps 7+remainder, bought moves + unknown name clarifies, unbuy moves back); multi-list suffix routing + ask-with-names; VIEWER add → rights reply, list still works; full gate green.
+- **Dependencies:** T62.

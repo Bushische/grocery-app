@@ -1,0 +1,6 @@
+# T62 — Telegram Bot API webhook: plumbing + link gating + help
+- **Goal:** The bot hears chat messages: `POST /telegram/bot-webhook` (public URL `/api/telegram/bot-webhook` via nginx) validates the sender, gates on the Mini App link, answers help.
+- **Inputs:** T58 (telegram_links), docs/TELEGRAM_PLAN.md (§7 bot-chat), `plugins/auth.ts` patterns for secret comparison (`timingSafeEqual`).
+- **Outputs:** `apps/api/src/telegram/protocol.ts` (Bot API Update/Message zod schemas, server-only — NOT shared), `botApi.ts` (sendMessage via fetch, injectable sender, web_app button builder), `botWebhook.ts` (secret-token header check → 401 fail-closed; non-text/bot messages acked silently; private vs group mention-stripping; unlinked → link prompt + open-app button; `/start`/help); config `TELEGRAM_WEBHOOK_SECRET` + `TELEGRAM_MINI_APP_URL` (prod-required, `.env.example`, compose passthrough); inject tests with stub sender (secret mismatch, ack shapes, gating).
+- **Definition of Done:** wrong secret → 401; non-message update → 200 no send; unlinked private text → link prompt with button, no DB mutation; linked `/start` → help; group message without mention → silent; full gate green.
+- **Dependencies:** T58.

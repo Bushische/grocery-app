@@ -109,6 +109,8 @@ describe("uploads writability self-check (T38)", () => {
               JWT_SECRET: "test-only-production-secret",
               CORS_ORIGIN: "https://grocery.example.com",
               TELEGRAM_BOT_TOKEN: "test-bot-token",
+              TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+              TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
               UPLOADS_PATH: dir,
             }),
           ),
@@ -147,6 +149,8 @@ describe("uploads writability self-check (T38)", () => {
         JWT_SECRET: "test-only-production-secret",
         CORS_ORIGIN: "https://grocery.example.com",
         TELEGRAM_BOT_TOKEN: "test-bot-token",
+        TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+        TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
         UPLOADS_PATH: dir,
       }),
     );
@@ -170,6 +174,8 @@ describe("production boot with CORS_ORIGIN (T34)", () => {
         JWT_SECRET: "test-only-production-secret",
         CORS_ORIGIN: "https://grocery.example.com",
         TELEGRAM_BOT_TOKEN: "test-bot-token",
+        TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+        TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
         UPLOADS_PATH: uploadsDir,
       }),
     );

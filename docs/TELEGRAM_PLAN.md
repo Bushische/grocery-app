@@ -168,3 +168,39 @@ validation (bot-token HMAC is sufficient — we own the bot).
    re-link).
 4. No `query_id`/`answerWebAppQuery` usage in v1 — if push confirmations are
    wanted later, they become a T-B5.
+
+## 7. Bot chat (T62–T64): "buy apples" in a conversation lands in the list
+
+The same bot additionally hears chat messages (Bot API webhook) and reuses the
+Mini App link as identity — no second account system.
+
+- **Transport:** `POST /telegram/bot-webhook` (publicly
+  `…/api/telegram/bot-webhook`, nginx strips `/api/` like `/alice/webhook`).
+  Registered via `setWebhook` with `secret_token = TELEGRAM_WEBHOOK_SECRET`
+  (validated with `timingSafeEqual`, fail-closed 401) and
+  `allowed_updates=["message"]`. Non-text updates, bot-sent messages, and
+  off-topic group chatter are acked `200` with no reply (no retry storms).
+- **Identity:** sender id → `telegram_links` → app user. Unlinked senders get a
+  link prompt with an open-app `web_app` button, never a mutation.
+- **Scope of hearing:** private chats — every text is a candidate command
+  (unknown → short help); groups — only messages with a leading `@mention`
+  (mention stripped) or `/command`, unknown → silence (never spam a group).
+  Groups need privacy mode OFF (`/setprivacy` → Disable) for plain text.
+- **Intents (EN+RU):** add (`buy/add/купи/добавь` → `smartAddItem`, T48
+  applies), list (`what to buy/что купить` → TO_BUY cap 7 + remainder),
+  bought (`bought/done/купили`), unbuy (`unbuy/верни`). EN verbs map onto the
+  Alice NLU (`parseGroceryIntent`) + fuzzy matcher (`findItemBySpokenName`),
+  so matching semantics stay identical across voice and chat. Unknown item
+  names clarify, never move the wrong item. Mutations require EDITOR+ on the
+  target list (VIEWER gets a rights reply but can still list).
+- **List resolution (no Alice-style binding table):** writable lists via
+  `listListsForUser` — exactly one → use it; `… в <List>` / `… in <List>`
+  suffix → match by title; otherwise reply with the list names and the suffix
+  pattern (stateless, works in groups).
+- **Replies:** plain text (no `parse_mode` escaping bugs), language follows the
+  message (Cyrillic → RU, else EN), every grocery reply carries an inline
+  `web_app` button (`TELEGRAM_MINI_APP_URL`) that opens the Mini App.
+- **Ops (manual):** `setWebhook` curl after each deploy (URL never changes, so
+  once per bot in practice), `/setprivacy` Disable, optional `/setcommands`.
+  Explicitly out: `callback_query` buttons, message editing/deletion, payments.
+

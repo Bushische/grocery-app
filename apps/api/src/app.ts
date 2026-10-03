@@ -23,6 +23,7 @@ import { listRoutes } from "./routes/lists";
 import { priceRoutes } from "./routes/prices";
 import { searchRoutes } from "./routes/search";
 import { userRoutes } from "./routes/users";
+import { botWebhookRoutes } from "./telegram/botWebhook";
 import { telegramRoutes } from "./telegram/routes";
 import { checkUploadsWritable } from "./uploads-probe";
 
@@ -89,6 +90,11 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
   app.register(telegramRoutes, {
     botToken: config.telegramBotToken,
     maxAgeSeconds: config.telegramAuthMaxAgeSeconds,
+  });
+  app.register(botWebhookRoutes, {
+    botToken: config.telegramBotToken,
+    webhookSecret: config.telegramWebhookSecret,
+    miniAppUrl: config.telegramMiniAppUrl,
   });
 
   return app;
