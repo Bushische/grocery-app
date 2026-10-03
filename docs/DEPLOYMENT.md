@@ -77,6 +77,7 @@ Edit `.env` (it is gitignored; keep it off the repo):
 |---|---|---|
 | `JWT_SECRET` | `openssl rand -hex 48` (run on the laptop, paste the value) | **Required.** The api refuses to boot in production without a non-default value. Rotating it later is safe: existing refresh tokens are opaque server-side rows, so clients silently re-login via `/api/auth/refresh`. |
 | `CORS_ORIGIN` | the public origin, e.g. `https://grocery.example.com` | Must exactly match the origin the app is served from (§7). Comma-separated list allowed. Wrong value = the SPA loads but every API call fails CORS. |
+| `TELEGRAM_BOT_TOKEN` | the bot token from BotFather (`@BotFather` → `/newbot`) | **Required.** The api refuses to boot in production without it (same fail-fast as `JWT_SECRET`/`CORS_ORIGIN`). It validates Telegram Mini App `initData` signatures (`POST /auth/telegram/session|link`): without the real value, Telegram auto-login cannot work. After setting it, point the bot's Menu Button URL at `https://grocery.<your-domain>/` — no new infra, the same web build is served inside Telegram. |
 | `DATABASE_PATH` | `/data/grocery.db` (default) | Fixed by the compose file; don't change. |
 | `UPLOADS_PATH` | `/data/images` (default) | Fixed by the compose file; don't change. |
 | `WEB_PORT` | `8080` | LAN port nginx listens on (host side). |
@@ -310,7 +311,7 @@ ssh alex@nas 'cd ~/grocery && docker compose -f docker-compose.prod.yml --env-fi
 | Symptom | Check |
 |---|---|
 | App loads, API calls fail in the browser but `curl http://localhost:8080/api/health` works on the NAS | `CORS_ORIGIN` doesn't match the public origin (§5/§7). |
-| api restart-loops | `docker logs grocery-api-1` — usually missing `JWT_SECRET` or a full disk. |
+| api restart-loops | `docker logs grocery-api-1` — usually a missing `JWT_SECRET`, `CORS_ORIGIN`, or `TELEGRAM_BOT_TOKEN` (all three are required in production) or a full disk. |
 | Login suddenly fails for everyone | `JWT_SECRET` changed is fine (silent refresh); a **DB restore** logs out sessions issued after the snapshot — users re-login. |
 | `grocery.db-wal` grows large | Normal while running; it checkpoints automatically. Only relevant: always `rm` WAL/SHM when swapping the DB file (§10.2). |
 | Slow API on LAN | `docker stats --no-stream` — check the 128 MB api limit isn't being hit (OOM thrash). |

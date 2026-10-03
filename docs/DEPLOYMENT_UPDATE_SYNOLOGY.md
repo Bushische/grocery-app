@@ -102,12 +102,14 @@ Values that must be real (not placeholders) in production:
 | `OAUTH_CLIENT_ID` | Alice linking client id | `alice` (must match Yandex console «Идентификатор приложения») |
 | `OAUTH_CLIENT_SECRET` | Alice linking secret | `openssl rand -base64 32` output; must EXACTLY match Yandex console «Секрет приложения» |
 | `ALICE_SKILL_ID` | Our skill id | dialogs.yandex.ru → skill → «Общие сведения» |
+| `TELEGRAM_BOT_TOKEN` | Telegram Mini App login | BotFather (`@BotFather` → `/newbot`) → paste the token. The api validates Mini App `initData` signatures against it (`POST /auth/telegram/session` for passwordless login, `/link` for the one-time email+password binding). After the stack is up, set the bot's Menu Button URL to `https://grocery.buyontheway.xyz/` (the same web build runs inside Telegram; no new infra). |
 | `TUNNEL_TOKEN` | Cloudflare connector token | Cloudflare Zero Trust → Networks → Tunnels → Install connector |
 | `WEB_PORT` | Host port for the web container | `8080` (must match the tunnel's public-hostname target `web:8080`) |
 
-Boot behavior if something is wrong: empty/unset `JWT_SECRET` or `CORS_ORIGIN` → the api
-**refuses to boot** (by design, T34 — check `logs api`, Step 6). Missing Alice trio →
-the stack boots with dev defaults but **account linking will not work**.
+Boot behavior if something is wrong: empty/unset `JWT_SECRET`, `CORS_ORIGIN`, or
+`TELEGRAM_BOT_TOKEN` → the api **refuses to boot** (by design — check `logs api`,
+Step 6). Missing Alice trio → the stack boots with dev defaults but **account
+linking will not work**.
 
 ## Step 5 — Laptop: transfer images + compose file to the NAS
 
@@ -213,7 +215,7 @@ not the deploy. If check 3 returns the SPA: you transferred an old web image —
 | `deploy.sh`: `image … not found locally` | Step 2 not run (or failed) → build first |
 | `ssh`: `connection refused / timeout` | NAS SSH off or wrong host/user; DSM Control Panel → Terminal & SNMP |
 | `scp`: `subsystem request failed` | Old script version — current `deploy.sh` uses `scp -O`; `git pull` the repo |
-| api container restart-loops | Read `logs api` tail: usually `JWT_SECRET`/`CORS_ORIGIN` empty → fix `.env`, `up -d` again |
+| api container restart-loops | Read `logs api` tail: usually `JWT_SECRET`/`CORS_ORIGIN`/`TELEGRAM_BOT_TOKEN` empty → fix `.env`, `up -d` again |
 | `curl /api/health` → 000/timeout | Tunnel down (`ps tunnel`, tunnel logs) or Cloudflare route missing → Step 7 |
 | Consent page returns the SPA | Old web image on NAS → rebuild + re-transfer (Step 2 → 5 → 6) |
 | Yandex link button loops forever | `OAUTH_CLIENT_SECRET` on NAS ≠ console value, or `ALICE_SKILL_ID` wrong → Step 4, then Step 6 not needed (env-only change → just `up -d` again) |
