@@ -24,6 +24,7 @@ import { priceRoutes } from "./routes/prices";
 import { searchRoutes } from "./routes/search";
 import { userRoutes } from "./routes/users";
 import { botWebhookRoutes } from "./telegram/botWebhook";
+import { JevExtractor } from "./telegram/extract";
 import { telegramRoutes } from "./telegram/routes";
 import { checkUploadsWritable } from "./uploads-probe";
 
@@ -95,6 +96,16 @@ export function buildApp(config: AppConfig, dependencies: AppDependencies = {}):
     botToken: config.telegramBotToken,
     webhookSecret: config.telegramWebhookSecret,
     miniAppUrl: config.telegramMiniAppUrl,
+    // JEV decision fallback (T66): deterministic-only when unconfigured.
+    extractor:
+      config.extractionBackend === "jev"
+        ? new JevExtractor({
+            apiKey: config.openrouterApiKey,
+            model: config.jevModel,
+            timeoutMs: config.jevTimeoutMs,
+          })
+        : undefined,
+    confidenceThreshold: config.jevConfidenceThreshold,
   });
 
   return app;

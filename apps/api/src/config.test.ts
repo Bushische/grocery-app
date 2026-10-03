@@ -144,6 +144,54 @@ describe("loadConfig Telegram chat credentials (T62)", () => {
   });
 });
 
+describe("loadConfig extraction backend (T66)", () => {
+  const productionEnv = {
+    NODE_ENV: "production",
+    LOG_LEVEL: "silent",
+    JWT_SECRET: "test-production-secret",
+    CORS_ORIGIN: "https://grocery.example.com",
+    TELEGRAM_BOT_TOKEN: "123456:ABC-DEF",
+    TELEGRAM_WEBHOOK_SECRET: "wh-secret",
+    TELEGRAM_MINI_APP_URL: "https://grocery.example.com/",
+  };
+
+  it("defaults to the deterministic backend with JEV tuning knobs", () => {
+    const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    expect(config.extractionBackend).toBe("deterministic");
+    expect(config.openrouterApiKey).toBe("");
+    expect(config.jevModel).toBe("typesafe/jev-1.13");
+    expect(config.jevTimeoutMs).toBe(5000);
+    expect(config.jevConfidenceThreshold).toBe(0.6);
+  });
+
+  it("reads the backend, key, model, timeout, and threshold from the environment", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      EXTRACTION_BACKEND: "jev",
+      OPENROUTER_API_KEY: "sk-or-test",
+      JEV_MODEL: "typesafe/jev-1.13",
+      JEV_TIMEOUT_MS: "3000",
+      JEV_CONFIDENCE_THRESHOLD: "0.75",
+    });
+    expect(config.extractionBackend).toBe("jev");
+    expect(config.openrouterApiKey).toBe("sk-or-test");
+    expect(config.jevTimeoutMs).toBe(3000);
+    expect(config.jevConfidenceThreshold).toBe(0.75);
+  });
+
+  it("requires the OpenRouter key in production only with backend=jev", () => {
+    expect(() => loadConfig(productionEnv)).not.toThrow();
+    expect(() => loadConfig({ ...productionEnv, EXTRACTION_BACKEND: "jev" })).toThrow(
+      "OPENROUTER_API_KEY must be set in production with EXTRACTION_BACKEND=jev",
+    );
+    expect(
+      loadConfig({ ...productionEnv, EXTRACTION_BACKEND: "jev", OPENROUTER_API_KEY: "sk-or-x" })
+        .openrouterApiKey,
+    ).toBe("sk-or-x");
+  });
+});
+
 describe("loadConfig CORS_ORIGIN production gate (T34)", () => {
   const productionEnv = {
     NODE_ENV: "production",

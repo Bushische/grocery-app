@@ -31,6 +31,12 @@ services:
       # Bot API chat (T62-T64): webhook secret + public Mini App URL.
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_MINI_APP_URL: ${TELEGRAM_MINI_APP_URL:-}
+      # Action extraction (T66): deterministic (default) or jev via OpenRouter.
+      EXTRACTION_BACKEND: ${EXTRACTION_BACKEND:-deterministic}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-typesafe/jev-1.13}
+      JEV_TIMEOUT_MS: ${JEV_TIMEOUT_MS:-5000}
+      JEV_CONFIDENCE_THRESHOLD: ${JEV_CONFIDENCE_THRESHOLD:-0.6}
     volumes:
       - data:/data
       - uploads:/data/images

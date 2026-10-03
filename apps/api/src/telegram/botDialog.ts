@@ -4,6 +4,15 @@ import { type GroceryIntent, parseGroceryIntent } from "../alice/nlu";
 import type { Db } from "../db/client";
 import { listItems, moveItem, smartAddItem, updateItem } from "../services/itemService";
 import { getMembership, listListsForUser } from "../services/listService";
+import type { ActionExtractor } from "./extract";
+
+/** Confidence floor for acting on a JEV verdict (T66); below it we clarify. */
+export const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.6;
+
+export type TelegramDialogDeps = {
+  extractor?: ActionExtractor;
+  confidenceThreshold?: number;
+};
 
 type Lang = "ru" | "en";
 type CandidateList = { id: string; title: string };
@@ -118,7 +127,7 @@ type ListResolution =
 export function resolveTelegramList(db: Db, userId: string, command: string): ListResolution {
   const accessible = listListsForUser(db, userId);
   if (accessible.length === 0) return { kind: "no_lists" };
-  const byTitle = (wanted: string): ListResolution | undefined => {
+  const byTitle = (wanted: string): Extract<ListResolution, { kind: "resolved" }> | undefined => {
     const matchedId = matchListChoice(
       accessible.map((list) => ({ id: list.id, title: list.title })),
       wanted,
@@ -166,13 +175,14 @@ function canEdit(db: Db, listId: string, userId: string): boolean {
  * Returns `{ silent: true }` for group chatter with no recognizable intent
  * (never spam a group); everything else is text.
  */
-export function handleTelegramChat(
+export async function handleTelegramChat(
   db: Db,
   userId: string,
   rawCommand: string,
   isPrivate: boolean,
   quoted = "",
-): TelegramChatAnswer {
+  deps: TelegramDialogDeps = {},
+): Promise<TelegramChatAnswer> {
   const quote = quoted.trim();
   const lang = langOf(rawCommand !== "" ? rawCommand : quote);
   const resolution = resolveTelegramList(db, userId, rawCommand.trim() || quote);
@@ -197,6 +207,48 @@ export function handleTelegramChat(
   }
   const intent = parseTelegramIntent(resolution.rest);
   if (intent.kind === "unknown") {
+    // Last resort before clarifying (T66): a configured extractor (JEV)
+    // judges the message; below-threshold or failed verdicts fall through
+    // to the quote/fragment/clarify handling below.
+    if (deps.extractor) {
+      const judged = await deps.extractor.extractAction(
+        resolution.rest !== "" ? resolution.rest : quote,
+      );
+      const threshold = deps.confidenceThreshold ?? DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+      if (judged.action !== "unknown" && judged.confidence >= threshold) {
+        const products = quote !== "" ? quote : resolution.rest;
+        if (judged.action === "list") {
+          return runIntent(db, userId, resolution.listId, resolution.title, { kind: "list" }, lang);
+        }
+        if (judged.action === "add") {
+          const fragments = splitItems(products);
+          if (fragments.length >= 2) {
+            return handleAddMany(db, userId, resolution.listId, resolution.title, fragments, lang);
+          }
+          if (fragments.length === 1 && fragments[0] !== undefined) {
+            return runIntent(
+              db,
+              userId,
+              resolution.listId,
+              resolution.title,
+              { kind: "add", name: fragments[0] },
+              lang,
+            );
+          }
+        } else if (products.trim() !== "") {
+          // buy/unbuy: the whole text is the item name — the fuzzy matcher
+          // clarifies on miss rather than moving the wrong item.
+          return runIntent(
+            db,
+            userId,
+            resolution.listId,
+            resolution.title,
+            { kind: judged.action, name: products.trim() },
+            lang,
+          );
+        }
+      }
+    }
     // No products in the command itself: fall back to the quoted message
     // (T65 — reply-`/buy`, or a list-hint-only `/buy in Home` reply).
     if (quote !== "") {
@@ -257,9 +309,9 @@ function answerForProducts(
     text:
       lang === "ru"
         ? "Не понял. Примеры: «купи молоко», «что купить», «купили молоко»."
-          : 'Didn\'t get that. Try "buy milk", "what to buy", "bought milk".',
-    };
-  }
+        : 'Didn\'t get that. Try "buy milk", "what to buy", "bought milk".',
+  };
+}
 
 function runIntent(
   db: Db,

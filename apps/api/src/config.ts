@@ -22,6 +22,11 @@ const envSchema = z.object({
   TELEGRAM_AUTH_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(86400),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
   TELEGRAM_MINI_APP_URL: z.string().default(""),
+  EXTRACTION_BACKEND: z.enum(["deterministic", "jev"]).default("deterministic"),
+  OPENROUTER_API_KEY: z.string().default(""),
+  JEV_MODEL: z.string().min(1).default("typesafe/jev-1.13"),
+  JEV_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  JEV_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.6),
 });
 
 export type LogLevel = z.infer<typeof envSchema>["LOG_LEVEL"];
@@ -43,6 +48,11 @@ export type AppConfig = {
   telegramAuthMaxAgeSeconds: number;
   telegramWebhookSecret: string;
   telegramMiniAppUrl: string;
+  extractionBackend: "deterministic" | "jev";
+  openrouterApiKey: string;
+  jevModel: string;
+  jevTimeoutMs: number;
+  jevConfidenceThreshold: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -70,6 +80,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (parsed.NODE_ENV === "production" && parsed.TELEGRAM_MINI_APP_URL.trim() === "") {
     throw new Error("TELEGRAM_MINI_APP_URL must be set in production (see .env.example)");
   }
+  if (
+    parsed.NODE_ENV === "production" &&
+    parsed.EXTRACTION_BACKEND === "jev" &&
+    parsed.OPENROUTER_API_KEY.trim() === ""
+  ) {
+    throw new Error(
+      "OPENROUTER_API_KEY must be set in production with EXTRACTION_BACKEND=jev (see .env.example)",
+    );
+  }
   return {
     env: parsed.NODE_ENV,
     isProduction: parsed.NODE_ENV === "production",
@@ -87,5 +106,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     telegramAuthMaxAgeSeconds: parsed.TELEGRAM_AUTH_MAX_AGE_SECONDS,
     telegramWebhookSecret: parsed.TELEGRAM_WEBHOOK_SECRET,
     telegramMiniAppUrl: parsed.TELEGRAM_MINI_APP_URL,
+    extractionBackend: parsed.EXTRACTION_BACKEND,
+    openrouterApiKey: parsed.OPENROUTER_API_KEY,
+    jevModel: parsed.JEV_MODEL,
+    jevTimeoutMs: parsed.JEV_TIMEOUT_MS,
+    jevConfidenceThreshold: parsed.JEV_CONFIDENCE_THRESHOLD,
   };
 }

@@ -105,6 +105,9 @@ Values that must be real (not placeholders) in production:
 | `TELEGRAM_BOT_TOKEN` | Telegram Mini App login | BotFather (`@BotFather` → `/newbot`) → paste the token. The api validates Mini App `initData` signatures against it (`POST /auth/telegram/session` for passwordless login, `/link` for the one-time email+password binding). After the stack is up, set the bot's Menu Button URL to `https://grocery.buyontheway.xyz/` (the same web build runs inside Telegram; no new infra). |
 | `TELEGRAM_WEBHOOK_SECRET` | Telegram chat commands | `openssl rand -base64 32` output. Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; the same value goes into the `setWebhook` call (Step 8b). |
 | `TELEGRAM_MINI_APP_URL` | Open-app button in chat replies | `https://grocery.buyontheway.xyz/` (public URL of this same web build). |
+| `EXTRACTION_BACKEND` | Chat action extraction (T66) | `deterministic` (default — regex + Alice NLU, zero external calls) or `jev` (unstructured messages judged by TypeSafe JEV; then `OPENROUTER_API_KEY` below is required). |
+| `OPENROUTER_API_KEY` | JEV via OpenRouter | OpenRouter dashboard → API keys. Required iff `EXTRACTION_BACKEND=jev` (fail-fast at boot, same pattern as the bot token). Never logged. |
+| `JEV_MODEL` | Pinned JEV release | `typesafe/jev-1.13` (pinned, not the `latest` alias, so tuned confidence thresholds stay stable). |
 | `TUNNEL_TOKEN` | Cloudflare connector token | Cloudflare Zero Trust → Networks → Tunnels → Install connector |
 | `WEB_PORT` | Host port for the web container | `8080` (must match the tunnel's public-hostname target `web:8080`) |
 

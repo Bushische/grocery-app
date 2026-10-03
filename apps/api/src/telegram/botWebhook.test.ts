@@ -153,9 +153,7 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
 
   it("consumes the quoted list on a bare reply-/buy (T65 scenarios 2–3)", async () => {
     sent = [];
-    const res = await postUpdate(
-      messageUpdate({ text: "/buy", replyToText: "milk\nbread" }),
-    );
+    const res = await postUpdate(messageUpdate({ text: "/buy", replyToText: "milk\nbread" }));
     expect(res.statusCode).toBe(200);
     expect(sent).toHaveLength(1);
     expect(sent[0]?.text).toBe('Added "milk", "bread" to "TG List".');
@@ -163,12 +161,40 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
 
   it("prefers the command text over the quote (suffix routing in replies)", async () => {
     sent = [];
-    const res = await postUpdate(
-      messageUpdate({ text: "/buy in TG List", replyToText: "kefir" }),
-    );
+    const res = await postUpdate(messageUpdate({ text: "/buy in TG List", replyToText: "kefir" }));
     expect(res.statusCode).toBe(200);
     expect(sent).toHaveLength(1);
     expect(sent[0]?.text).toBe('Added "kefir" to "TG List".');
+  });
+
+  it("routes deterministic-unknown text through the configured extractor (T66)", async () => {
+    const extractorSent: SentMessage[] = [];
+    const extractorApp = Fastify({ logger: false });
+    applyErrorHandling(extractorApp);
+    registerDb(extractorApp, db);
+    await extractorApp.register(botWebhookRoutes, {
+      botToken: "test-token",
+      webhookSecret: WEBHOOK_SECRET,
+      miniAppUrl: MINI_APP_URL,
+      sender: async (chatId, text, opts) => {
+        extractorSent.push({ chatId, text, opts });
+      },
+      extractor: { extractAction: async () => ({ action: "add", confidence: 0.9 }) },
+    });
+    await extractorApp.ready();
+    try {
+      const res = await extractorApp.inject({
+        method: "POST",
+        url: "/telegram/bot-webhook",
+        headers: { "x-telegram-bot-api-secret-token": WEBHOOK_SECRET },
+        payload: messageUpdate({ text: "something for pancakes" }),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(extractorSent).toHaveLength(1);
+      expect(extractorSent[0]?.text).toBe('Added "something for pancakes" to "TG List".');
+    } finally {
+      await extractorApp.close();
+    }
   });
 
   it("answers a bare /start with help in private, silence in groups", async () => {

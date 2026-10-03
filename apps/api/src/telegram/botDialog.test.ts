@@ -4,7 +4,14 @@ import { type Db, createDb, createSqlite } from "../db/client";
 import { runMigrations } from "../db/migrate";
 import { users } from "../db/schema";
 import { addListMember, createList } from "../services/listService";
-import { handleTelegramChat, parseTelegramIntent, resolveTelegramList, splitItems } from "./botDialog";
+import {
+  type TelegramDialogDeps,
+  handleTelegramChat,
+  parseTelegramIntent,
+  resolveTelegramList,
+  splitItems,
+} from "./botDialog";
+import type { ActionExtractor } from "./extract";
 
 let db: Db;
 let soloUser: string;
@@ -19,8 +26,14 @@ function createUser(email: string): string {
   return id;
 }
 
-function answerText(userId: string, command: string, isPrivate = true, quoted = ""): string | undefined {
-  const answer = handleTelegramChat(db, userId, command, isPrivate, quoted);
+async function answerText(
+  userId: string,
+  command: string,
+  isPrivate = true,
+  quoted = "",
+  deps: TelegramDialogDeps = {},
+): Promise<string | undefined> {
+  const answer = await handleTelegramChat(db, userId, command, isPrivate, quoted, deps);
   return answer.silent ? undefined : answer.text;
 }
 
@@ -39,20 +52,20 @@ beforeAll(() => {
 });
 
 describe("parseTelegramIntent (T63 — EN verbs onto Alice NLU)", () => {
-  it("maps buy/add to add, keeping quantities", () => {
+  it("maps buy/add to add, keeping quantities", async () => {
     expect(parseTelegramIntent("buy apples")).toEqual({ kind: "add", name: "apples" });
     expect(parseTelegramIntent("add 2 milk")).toEqual({ kind: "add", name: "milk", qtyText: "2" });
     expect(parseTelegramIntent("please buy bread please")).toEqual({ kind: "add", name: "bread" });
   });
 
-  it("maps bought/done to buy and unbuy/return to unbuy", () => {
+  it("maps bought/done to buy and unbuy/return to unbuy", async () => {
     expect(parseTelegramIntent("bought apples")).toEqual({ kind: "buy", name: "apples" });
     expect(parseTelegramIntent("done milk")).toEqual({ kind: "buy", name: "milk" });
     expect(parseTelegramIntent("unbuy apples")).toEqual({ kind: "unbuy", name: "apples" });
     expect(parseTelegramIntent("milk back to list")).toEqual({ kind: "unbuy", name: "milk" });
   });
 
-  it("recognizes English list commands and keeps Russian parsing intact", () => {
+  it("recognizes English list commands and keeps Russian parsing intact", async () => {
     expect(parseTelegramIntent("what to buy")).toEqual({ kind: "list" });
     expect(parseTelegramIntent("show list")).toEqual({ kind: "list" });
     expect(parseTelegramIntent("купи молоко")).toEqual({ kind: "add", name: "молоко" });
@@ -62,7 +75,7 @@ describe("parseTelegramIntent (T63 — EN verbs onto Alice NLU)", () => {
 });
 
 describe("resolveTelegramList (T63)", () => {
-  it("auto-uses the single writable list", () => {
+  it("auto-uses the single writable list", async () => {
     const resolution = resolveTelegramList(db, soloUser, "buy apples");
     expect(resolution).toEqual({
       kind: "resolved",
@@ -72,11 +85,11 @@ describe("resolveTelegramList (T63)", () => {
     });
   });
 
-  it("reports no_lists without writable lists", () => {
+  it("reports no_lists without writable lists", async () => {
     expect(resolveTelegramList(db, emptyUser, "buy apples").kind).toBe("no_lists");
   });
 
-  it("asks with names for several lists, routing …в/in <List> suffixes", () => {
+  it("asks with names for several lists, routing …в/in <List> suffixes", async () => {
     const asked = resolveTelegramList(db, multiUser, "buy milk");
     expect(asked.kind).toBe("need_choice");
     const routed = resolveTelegramList(db, multiUser, "buy milk in Second");
@@ -87,7 +100,7 @@ describe("resolveTelegramList (T63)", () => {
 });
 
 describe("splitItems (T65)", () => {
-  it("splits lines, semicolons, commas, and and/и", () => {
+  it("splits lines, semicolons, commas, and and/и", async () => {
     expect(splitItems("milk\nbread")).toEqual(["milk", "bread"]);
     expect(splitItems("milk, bread;butter")).toEqual(["milk", "bread", "butter"]);
     expect(splitItems("milk and bread")).toEqual(["milk", "bread"]);
@@ -96,87 +109,157 @@ describe("splitItems (T65)", () => {
     expect(splitItems("  ")).toEqual([]);
   });
 
-  it("caps at MAX_CHAT_ITEMS", () => {
+  it("caps at MAX_CHAT_ITEMS", async () => {
     const many = Array.from({ length: 30 }, (_, index) => `item${index}`).join(",");
     expect(splitItems(many)).toHaveLength(20);
   });
 });
 
 describe("handleTelegramChat multi-add (T65)", () => {
-  it("adds several products with one summary reply", () => {
-    expect(answerText(soloUser, "buy cheese, butter and 2 yogurt")).toBe(
+  it("adds several products with one summary reply", async () => {
+    expect(await answerText(soloUser, "buy cheese, butter and 2 yogurt")).toBe(
       'Added "cheese", "butter", "yogurt" to "Home".',
     );
   });
 
-  it("treats a bare multi-line list as products (reply-/buy shape)", () => {
-    expect(answerText(soloUser, "kefir\nryazhenka")).toBe('Added "kefir", "ryazhenka" to "Home".');
+  it("treats a bare multi-line list as products (reply-/buy shape)", async () => {
+    expect(await answerText(soloUser, "kefir\nryazhenka")).toBe(
+      'Added "kefir", "ryazhenka" to "Home".',
+    );
   });
 
-  it("notes already-listed items instead of duplicating silently", () => {
-    expect(answerText(soloUser, "buy kefir, milk")).toContain("already on");
+  it("notes already-listed items instead of duplicating silently", async () => {
+    expect(await answerText(soloUser, "buy kefir, milk")).toContain("already on");
   });
 
-  it("keeps single-item replies in the singular form", () => {
-    expect(answerText(soloUser, "buy solitary-pear")).toBe('Added "solitary-pear" to "Home".');
+  it("keeps single-item replies in the singular form", async () => {
+    expect(await answerText(soloUser, "buy solitary-pear")).toBe(
+      'Added "solitary-pear" to "Home".',
+    );
   });
 
-  it("enforces EDITOR+ on multi-add for VIEWERs", () => {
-    expect(answerText(viewerUser, "milk, bread") ?? "").toContain("editor");
+  it("enforces EDITOR+ on multi-add for VIEWERs", async () => {
+    expect((await answerText(viewerUser, "milk, bread")) ?? "").toContain("editor");
   });
 });
 
 describe("handleTelegramChat quoted replies (T65 scenarios 2–3)", () => {
-  it("adds a single quoted product on a bare command", () => {
-    expect(answerText(soloUser, "", true, "plums")).toBe('Added "plums" to "Home".');
+  it("adds a single quoted product on a bare command", async () => {
+    expect(await answerText(soloUser, "", true, "plums")).toBe('Added "plums" to "Home".');
   });
 
-  it("routes a list-hint command with quoted products by suffix", () => {
-    expect(answerText(multiUser, "in Second", true, "kiwi")).toBe('Added "kiwi" to "Second".');
+  it("routes a list-hint command with quoted products by suffix", async () => {
+    expect(await answerText(multiUser, "in Second", true, "kiwi")).toBe(
+      'Added "kiwi" to "Second".',
+    );
   });
 
-  it("parses quoted intents, not just bare names", () => {
-    expect(answerText(soloUser, "", true, "bought plums")).toBe('Marked "plums" as bought.');
+  it("parses quoted intents, not just bare names", async () => {
+    expect(await answerText(soloUser, "", true, "bought plums")).toBe('Marked "plums" as bought.');
   });
 
-  it("prefers command products over the quote when both exist", () => {
-    expect(answerText(soloUser, "buy pears", true, "plums")).toBe('Added "pears" to "Home".');
+  it("prefers command products over the quote when both exist", async () => {
+    expect(await answerText(soloUser, "buy pears", true, "plums")).toBe('Added "pears" to "Home".');
   });
 
-  it("stays silent on empty quotes in groups", () => {
-    expect(answerText(soloUser, "", false, "")).toBeUndefined();
+  it("stays silent on empty quotes in groups", async () => {
+    expect(await answerText(soloUser, "", false, "")).toBeUndefined();
+  });
+});
+
+describe("handleTelegramChat JEV wiring (T66)", () => {
+  const jevAdd: ActionExtractor = {
+    extractAction: async () => ({ action: "add", confidence: 0.9 }),
+  };
+  const jevList: ActionExtractor = {
+    extractAction: async () => ({ action: "list", confidence: 0.8 }),
+  };
+  const jevUnsure: ActionExtractor = {
+    extractAction: async () => ({ action: "add", confidence: 0.2 }),
+  };
+  const jevDown: ActionExtractor = {
+    extractAction: async () => ({ action: "unknown", confidence: 0 }),
+  };
+
+  it("applies a confident JEV verdict on deterministic-unknown text", async () => {
+    const fresh = createUser("tg-jev@example.com");
+    createList(db, fresh, "JEV");
+    await expect(
+      answerText(fresh, "something for pancakes", true, "", { extractor: jevAdd }),
+    ).resolves.toBe('Added "something for pancakes" to "JEV".');
+  });
+
+  it("clarifies below the threshold and when JEV is unsure or down", async () => {
+    const fresh = createUser("tg-jev2@example.com");
+    createList(db, fresh, "JEV2");
+    await expect(
+      answerText(fresh, "something for pancakes", true, "", { extractor: jevUnsure }),
+    ).resolves.toContain("Try");
+    await expect(
+      answerText(fresh, "something for pancakes", true, "", { extractor: jevDown }),
+    ).resolves.toContain("Try");
+    await expect(
+      answerText(fresh, "something for pancakes", true, "", {
+        extractor: jevList,
+        confidenceThreshold: 0.95,
+      }),
+    ).resolves.toContain("Try");
+  });
+
+  it("routes a confident JEV list verdict without products", async () => {
+    const fresh = createUser("tg-jev3@example.com");
+    createList(db, fresh, "JEV3");
+    await expect(
+      answerText(fresh, "well hello there", true, "", { extractor: jevList }),
+    ).resolves.toBe('"JEV3" has nothing to buy yet.');
+  });
+
+  it("never calls the extractor on deterministic hits (zero external calls)", async () => {
+    let calls = 0;
+    const counting = {
+      extractAction: async () => {
+        calls += 1;
+        return { action: "unknown" as const, confidence: 0 };
+      },
+    };
+    const fresh = createUser("tg-jev4@example.com");
+    createList(db, fresh, "JEV4");
+    await expect(answerText(fresh, "buy milk", true, "", { extractor: counting })).resolves.toBe(
+      'Added "milk" to "JEV4".',
+    );
+    expect(calls).toBe(0);
   });
 });
 
 describe("handleTelegramChat grocery intents (T63)", () => {
-  it("adds (EN+RU), lists with cap, buys, unbuys on the bound list", () => {
+  it("adds (EN+RU), lists with cap, buys, unbuys on the bound list", async () => {
     // Isolated list: T65 tests share soloUser's "Home" and would overflow the cap.
     const fresh = createUser("tg-t63@example.com");
     createList(db, fresh, "T63");
-    expect(answerText(fresh, "buy apples")).toBe('Added "apples" to "T63".');
-    expect(answerText(fresh, "buy apples")).toBe('"apples" is already on "T63".');
-    expect(answerText(fresh, "что купить")).toBe("«T63»: apples.");
-    expect(answerText(fresh, "bought apples")).toBe('Marked "apples" as bought.');
-    expect(answerText(fresh, "верни apples")).toBe("Вернул «apples» в покупки.");
+    expect(await answerText(fresh, "buy apples")).toBe('Added "apples" to "T63".');
+    expect(await answerText(fresh, "buy apples")).toBe('"apples" is already on "T63".');
+    expect(await answerText(fresh, "что купить")).toBe("«T63»: apples.");
+    expect(await answerText(fresh, "bought apples")).toBe('Marked "apples" as bought.');
+    expect(await answerText(fresh, "верни apples")).toBe("Вернул «apples» в покупки.");
   });
 
-  it("clarifies unknown item names instead of moving the wrong item", () => {
-    expect(answerText(soloUser, "bought dragonfruit")).toContain("dragonfruit");
+  it("clarifies unknown item names instead of moving the wrong item", async () => {
+    expect(await answerText(soloUser, "bought dragonfruit")).toContain("dragonfruit");
   });
 
-  it("helps on unknown private text and stays silent in groups", () => {
-    expect(answerText(soloUser, "blabla") ?? "").toContain("buy milk");
-    expect(answerText(soloUser, "blabla", false)).toBeUndefined();
+  it("helps on unknown private text and stays silent in groups", async () => {
+    expect((await answerText(soloUser, "blabla")) ?? "").toContain("buy milk");
+    expect(await answerText(soloUser, "blabla", false)).toBeUndefined();
   });
 
-  it("asks multi-list users to specify, then routes by suffix", () => {
-    expect(answerText(multiUser, "buy milk") ?? "").toContain("First");
-    expect(answerText(multiUser, "buy milk in Second")).toBe('Added "milk" to "Second".');
+  it("asks multi-list users to specify, then routes by suffix", async () => {
+    expect((await answerText(multiUser, "buy milk")) ?? "").toContain("First");
+    expect(await answerText(multiUser, "buy milk in Second")).toBe('Added "milk" to "Second".');
   });
 
-  it("reports empty state with no lists and rights for VIEWERs", () => {
-    expect(answerText(emptyUser, "buy milk") ?? "").toContain("No lists");
-    expect(answerText(viewerUser, "buy milk") ?? "").toContain("editor");
-    expect(answerText(viewerUser, "what to buy") ?? "").toContain("Home");
+  it("reports empty state with no lists and rights for VIEWERs", async () => {
+    expect((await answerText(emptyUser, "buy milk")) ?? "").toContain("No lists");
+    expect((await answerText(viewerUser, "buy milk")) ?? "").toContain("editor");
+    expect((await answerText(viewerUser, "what to buy")) ?? "").toContain("Home");
   });
 });

@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { FastifyHttpError } from "../errors";
 import { type BotSender, createBotSender } from "./botApi";
 import { handleTelegramChat } from "./botDialog";
+import type { ActionExtractor } from "./extract";
 import { type TelegramChatType, telegramUpdateSchema } from "./protocol";
 import { getTelegramLinkByTelegramId } from "./service";
 
@@ -12,6 +13,9 @@ export type BotWebhookOptions = {
   miniAppUrl: string;
   /** Test seam — defaults to the real HTTPS sender. */
   sender?: BotSender;
+  /** T66 extractor (JEV when configured); absent = deterministic only. */
+  extractor?: ActionExtractor;
+  confidenceThreshold?: number;
 };
 
 export const BOT_LINK_PROMPT_TEXT =
@@ -100,7 +104,17 @@ export async function botWebhookRoutes(
     const source = text !== "" ? text : quoted;
     // Linked users get grocery intents (T63): unknown phrasing helps in
     // private chats and stays silent in groups (never spam a group).
-    const answer = handleTelegramChat(db, link.userId, source, chatType === "private", quoted);
+    const answer = await handleTelegramChat(
+      db,
+      link.userId,
+      source,
+      chatType === "private",
+      quoted,
+      {
+        extractor: options.extractor,
+        confidenceThreshold: options.confidenceThreshold,
+      },
+    );
     if (answer.silent || !answer.text) {
       return reply.send({ ok: true });
     }
