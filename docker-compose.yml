@@ -11,6 +11,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (see .env.example)}
       DATABASE_PATH: ${DATABASE_PATH:-/data/grocery.db}
       UPLOADS_PATH: ${UPLOADS_PATH:-/data/images}
+      # Telegram Mini App (T59): empty by default (dev boots without it);
+      # set a real BotFather token to test Telegram login locally.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_AUTH_MAX_AGE_SECONDS: ${TELEGRAM_AUTH_MAX_AGE_SECONDS:-86400}
     volumes:
       - ./apps/api:/app
       - data:/data

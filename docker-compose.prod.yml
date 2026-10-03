@@ -23,6 +23,11 @@ services:
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:-alice}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-alice-dev-secret-change-me}
       ALICE_SKILL_ID: ${ALICE_SKILL_ID:-alice-dev-skill}
+      # Telegram Mini App (T59-T61): bot token for initData signature validation.
+      # Required in production — the api refuses to boot with an empty value,
+      # so this passthrough must stay in sync with .env.prod.example.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_AUTH_MAX_AGE_SECONDS: ${TELEGRAM_AUTH_MAX_AGE_SECONDS:-86400}
     volumes:
       - data:/data
       - uploads:/data/images
