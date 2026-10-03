@@ -424,4 +424,43 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
 
     expect(await screen.findByText(/Could not load this item/)).toBeInTheDocument();
   });
+
+  it("deletes the item after two-step confirm: DELETE then back to the list", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.on("DELETE", "/api/items/i1", () => json(204));
+    mock.stub();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByDisplayValue("Milk");
+    // Single-step click arms the confirmation instead of deleting.
+    await user.click(screen.getByRole("button", { name: "Delete Milk" }));
+    expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Confirm delete Milk" }));
+
+    await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
+    expect(await screen.findByText("lists-page")).toBeInTheDocument();
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l1");
+  });
+
+  it("shows the permission banner when a VIEWER deletes (403, row kept)", async () => {
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.on("DELETE", "/api/items/i1", () =>
+      json(403, { error: { code: "FORBIDDEN", message: "This action requires the EDITOR role" } }),
+    );
+    mock.stub();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByDisplayValue("Milk");
+    await user.click(screen.getByRole("button", { name: "Delete Milk" }));
+    await user.click(screen.getByRole("button", { name: "Confirm delete Milk" }));
+
+    expect(await screen.findByText(/don't have permission/)).toBeInTheDocument();
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/lists/l1/items/i1");
+  });
 });

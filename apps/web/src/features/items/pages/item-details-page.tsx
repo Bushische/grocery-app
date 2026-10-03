@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { ApiClientError } from "../../../lib/api-client";
 import { useCategories } from "../../lists/hooks/use-categories";
 import { ImageUpload } from "../components/image-upload";
 import { ItemEditForm } from "../components/item-edit-form";
@@ -8,6 +9,7 @@ import { PriceForm } from "../components/price-form";
 import { useItemDetail } from "../hooks/use-item-detail";
 import {
   useAddItemPrice,
+  useDeleteItem,
   useUpdateItem,
   useUploadItemImage,
 } from "../hooks/use-item-detail-mutations";
@@ -45,6 +47,8 @@ export function ItemDetailsPage() {
   const updateItem = useUpdateItem(listId, itemId);
   const addPrice = useAddItemPrice(listId, itemId);
   const uploadImage = useUploadItemImage(listId, itemId);
+  const removeItem = useDeleteItem(listId);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   if (detail.isPending) {
     return (
@@ -134,6 +138,54 @@ export function ItemDetailsPage() {
           <div className="mt-4">
             <PriceChart observations={prices} />
           </div>
+        </section>
+
+        <section
+          aria-label="Danger zone"
+          className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200"
+        >
+          <h2 className="text-sm font-medium text-gray-700">Danger zone</h2>
+          {removeItem.isError ? (
+            <p role="alert" className="mt-2 text-sm text-red-600">
+              {removeItem.error instanceof ApiClientError && removeItem.error.status === 403
+                ? "You don't have permission to delete items in this list."
+                : "Could not delete the item. Please try again."}
+            </p>
+          ) : null}
+          {confirmingDelete ? (
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                disabled={removeItem.isPending}
+                onClick={() =>
+                  removeItem.mutate(item.id, {
+                    onSuccess: () => (listId ? navigate(`/lists/${listId}`) : navigate(-1)),
+                  })
+                }
+                aria-label={`Confirm delete ${item.title}`}
+                className="min-h-11 flex-1 rounded-lg bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {removeItem.isPending ? "Deleting…" : "Confirm delete"}
+              </button>
+              <button
+                type="button"
+                disabled={removeItem.isPending}
+                onClick={() => setConfirmingDelete(false)}
+                className="min-h-11 rounded-lg px-3 text-sm font-medium text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              aria-label={`Delete ${item.title}`}
+              className="mt-3 min-h-11 rounded-lg px-3 text-sm font-medium text-red-600 hover:bg-red-50"
+            >
+              Delete item
+            </button>
+          )}
         </section>
       </div>
     </main>
