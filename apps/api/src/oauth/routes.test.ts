@@ -66,7 +66,9 @@ function codeFromLocation(location: string): { code: string; state: string | nul
 function continueUrlFromBody(body: string): string {
   const match = body.match(/href="([^"]+)"/);
   if (!match) throw new Error("no continue link in authorize response");
-  return match[1].replaceAll("&amp;", "&");
+  const href = match[1];
+  if (!href) throw new Error("no continue link in authorize response");
+  return href.replaceAll("&amp;", "&");
 }
 
 beforeAll(async () => {
