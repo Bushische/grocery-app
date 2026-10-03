@@ -4,7 +4,7 @@ import { type Db, createDb, createSqlite } from "../db/client";
 import { runMigrations } from "../db/migrate";
 import { users } from "../db/schema";
 import { addListMember, createList } from "../services/listService";
-import { handleTelegramChat, parseTelegramIntent, resolveTelegramList } from "./botDialog";
+import { handleTelegramChat, parseTelegramIntent, resolveTelegramList, splitItems } from "./botDialog";
 
 let db: Db;
 let soloUser: string;
@@ -19,8 +19,8 @@ function createUser(email: string): string {
   return id;
 }
 
-function answerText(userId: string, command: string, isPrivate = true): string | undefined {
-  const answer = handleTelegramChat(db, userId, command, isPrivate);
+function answerText(userId: string, command: string, isPrivate = true, quoted = ""): string | undefined {
+  const answer = handleTelegramChat(db, userId, command, isPrivate, quoted);
   return answer.silent ? undefined : answer.text;
 }
 
@@ -86,13 +86,78 @@ describe("resolveTelegramList (T63)", () => {
   });
 });
 
+describe("splitItems (T65)", () => {
+  it("splits lines, semicolons, commas, and and/и", () => {
+    expect(splitItems("milk\nbread")).toEqual(["milk", "bread"]);
+    expect(splitItems("milk, bread;butter")).toEqual(["milk", "bread", "butter"]);
+    expect(splitItems("milk and bread")).toEqual(["milk", "bread"]);
+    expect(splitItems("молоко и хлеб")).toEqual(["молоко", "хлеб"]);
+    expect(splitItems("- milk\n• bread")).toEqual(["milk", "bread"]);
+    expect(splitItems("  ")).toEqual([]);
+  });
+
+  it("caps at MAX_CHAT_ITEMS", () => {
+    const many = Array.from({ length: 30 }, (_, index) => `item${index}`).join(",");
+    expect(splitItems(many)).toHaveLength(20);
+  });
+});
+
+describe("handleTelegramChat multi-add (T65)", () => {
+  it("adds several products with one summary reply", () => {
+    expect(answerText(soloUser, "buy cheese, butter and 2 yogurt")).toBe(
+      'Added "cheese", "butter", "yogurt" to "Home".',
+    );
+  });
+
+  it("treats a bare multi-line list as products (reply-/buy shape)", () => {
+    expect(answerText(soloUser, "kefir\nryazhenka")).toBe('Added "kefir", "ryazhenka" to "Home".');
+  });
+
+  it("notes already-listed items instead of duplicating silently", () => {
+    expect(answerText(soloUser, "buy kefir, milk")).toContain("already on");
+  });
+
+  it("keeps single-item replies in the singular form", () => {
+    expect(answerText(soloUser, "buy solitary-pear")).toBe('Added "solitary-pear" to "Home".');
+  });
+
+  it("enforces EDITOR+ on multi-add for VIEWERs", () => {
+    expect(answerText(viewerUser, "milk, bread") ?? "").toContain("editor");
+  });
+});
+
+describe("handleTelegramChat quoted replies (T65 scenarios 2–3)", () => {
+  it("adds a single quoted product on a bare command", () => {
+    expect(answerText(soloUser, "", true, "plums")).toBe('Added "plums" to "Home".');
+  });
+
+  it("routes a list-hint command with quoted products by suffix", () => {
+    expect(answerText(multiUser, "in Second", true, "kiwi")).toBe('Added "kiwi" to "Second".');
+  });
+
+  it("parses quoted intents, not just bare names", () => {
+    expect(answerText(soloUser, "", true, "bought plums")).toBe('Marked "plums" as bought.');
+  });
+
+  it("prefers command products over the quote when both exist", () => {
+    expect(answerText(soloUser, "buy pears", true, "plums")).toBe('Added "pears" to "Home".');
+  });
+
+  it("stays silent on empty quotes in groups", () => {
+    expect(answerText(soloUser, "", false, "")).toBeUndefined();
+  });
+});
+
 describe("handleTelegramChat grocery intents (T63)", () => {
   it("adds (EN+RU), lists with cap, buys, unbuys on the bound list", () => {
-    expect(answerText(soloUser, "buy apples")).toBe('Added "apples" to "Home".');
-    expect(answerText(soloUser, "buy apples")).toBe('"apples" is already on "Home".');
-    expect(answerText(soloUser, "что купить")).toBe("«Home»: apples.");
-    expect(answerText(soloUser, "bought apples")).toBe('Marked "apples" as bought.');
-    expect(answerText(soloUser, "верни apples")).toBe("Вернул «apples» в покупки.");
+    // Isolated list: T65 tests share soloUser's "Home" and would overflow the cap.
+    const fresh = createUser("tg-t63@example.com");
+    createList(db, fresh, "T63");
+    expect(answerText(fresh, "buy apples")).toBe('Added "apples" to "T63".');
+    expect(answerText(fresh, "buy apples")).toBe('"apples" is already on "T63".');
+    expect(answerText(fresh, "что купить")).toBe("«T63»: apples.");
+    expect(answerText(fresh, "bought apples")).toBe('Marked "apples" as bought.');
+    expect(answerText(fresh, "верни apples")).toBe("Вернул «apples» в покупки.");
   });
 
   it("clarifies unknown item names instead of moving the wrong item", () => {

@@ -183,11 +183,14 @@ Mini App link as identity — no second account system.
 - **Identity:** sender id → `telegram_links` → app user. Unlinked senders get a
   link prompt with an open-app `web_app` button, never a mutation.
 - **Scope of hearing:** private chats — every text is a candidate command
-  (unknown → short help); groups — only messages with a leading `@mention`
-  (mention stripped) or `/command`, unknown → silence (never spam a group).
-  Groups need privacy mode OFF (`/setprivacy` → Disable) for plain text.
+  (unknown → short help); groups run with privacy ON — only `/commands`,
+  `@mentions`, and `/command`-replies arrive (each reply carries the quoted
+  `reply_to_message` text, which is how pasted product lists reach the bot).
+  Unknown → silence (never spam a group). Flipping `/setprivacy` requires
+  re-adding the bot to every group.
 - **Intents (EN+RU):** add (`buy/add/купи/добавь` → `smartAddItem`, T48
-  applies), list (`what to buy/что купить` → TO_BUY cap 7 + remainder),
+  applies; multi-product input splits on lines/`;`/`,`/`and/и`, cap 20, one
+  summary reply), list (`what to buy/что купить` → TO_BUY cap 7 + remainder),
   bought (`bought/done/купили`), unbuy (`unbuy/верни`). EN verbs map onto the
   Alice NLU (`parseGroceryIntent`) + fuzzy matcher (`findItemBySpokenName`),
   so matching semantics stay identical across voice and chat. Unknown item

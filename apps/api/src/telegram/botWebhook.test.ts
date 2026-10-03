@@ -25,6 +25,7 @@ function messageUpdate(params: {
   chatType?: string;
   fromId?: number;
   isBot?: boolean;
+  replyToText?: string;
 }): Record<string, unknown> {
   return {
     update_id: 1,
@@ -33,6 +34,9 @@ function messageUpdate(params: {
       from: { id: params.fromId ?? 279058397, is_bot: params.isBot ?? false },
       chat: { id: params.chatId ?? 100, type: params.chatType ?? "private" },
       ...(params.text === undefined ? {} : { text: params.text }),
+      ...(params.replyToText === undefined
+        ? {}
+        : { reply_to_message: { message_id: 0, text: params.replyToText } }),
     },
   };
 }
@@ -145,6 +149,26 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]?.text).toBe('Added "apples" to "TG List".');
     expect(sent[0]?.opts).toEqual({ openAppUrl: MINI_APP_URL });
+  });
+
+  it("consumes the quoted list on a bare reply-/buy (T65 scenarios 2–3)", async () => {
+    sent = [];
+    const res = await postUpdate(
+      messageUpdate({ text: "/buy", replyToText: "milk\nbread" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toBe('Added "milk", "bread" to "TG List".');
+  });
+
+  it("prefers the command text over the quote (suffix routing in replies)", async () => {
+    sent = [];
+    const res = await postUpdate(
+      messageUpdate({ text: "/buy in TG List", replyToText: "kefir" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toBe('Added "kefir" to "TG List".');
   });
 
   it("answers a bare /start with help in private, silence in groups", async () => {

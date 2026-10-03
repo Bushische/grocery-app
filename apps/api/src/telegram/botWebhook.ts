@@ -92,9 +92,15 @@ export async function botWebhookRoutes(
       await sendQuietly(request, sender, chatId, BOT_LINK_PROMPT_TEXT, miniAppUrl);
       return reply.send({ ok: true });
     }
+    // Product source (T65): the command text wins (it may carry a list
+    // suffix like `/buy in Home`); a bare `/buy` as a reply consumes the
+    // quoted message — with privacy ON that quote is the only way a
+    // plain-text product list reaches the bot.
+    const quoted = message.reply_to_message?.text?.trim() ?? "";
+    const source = text !== "" ? text : quoted;
     // Linked users get grocery intents (T63): unknown phrasing helps in
     // private chats and stays silent in groups (never spam a group).
-    const answer = handleTelegramChat(db, link.userId, text, chatType === "private");
+    const answer = handleTelegramChat(db, link.userId, source, chatType === "private", quoted);
     if (answer.silent || !answer.text) {
       return reply.send({ ok: true });
     }

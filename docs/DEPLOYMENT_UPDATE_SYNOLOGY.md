@@ -207,14 +207,17 @@ curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
 # → {"ok":true, ...}
 ```
 
-Then in BotFather: `/setprivacy` → pick the bot → **Disable**, so it hears plain
-`buy apples` in groups (otherwise it only sees `/commands` and mentions).
-Optional: `/setcommands` with `buy`, `list`, `bought`, `unbuy` for input hints.
+Then in BotFather: `/setprivacy` → pick the bot → **Enable** (privacy ON: the bot
+gets `/commands`, `@mentions`, and `/command`-replies with the quoted text — plain
+group chatter never reaches it, which is the point), then **re-add the bot to every
+group** (the flip does not apply in place). Optional: `/setcommands` with `buy`,
+`list`, `bought`, `unbuy` for input autocomplete.
 
 Verify: message the bot `buy apples` in a private chat → it replies and the item
-appears in the list; an unlinked sender gets the link prompt instead. In a group,
-plain `buy apples` is heard only with privacy OFF; off-topic chatter gets no reply
-(by design — check api logs, not the chat, when diagnosing silence).
+appears in the list; `/buy milk, bread` adds both; reply `/buy` to a pasted
+3-line list adds all three; an unlinked sender gets the link prompt instead. In a
+group, plain `buy apples` is silence (privacy ON: nothing delivered — check api
+logs only when a `/command` or `@mention` misbehaves).
 
 ## Step 9 — After a successful deploy
 

@@ -21,6 +21,15 @@ const telegramMessageSchema = z.object({
   from: telegramUserSchema.optional(),
   chat: telegramChatSchema,
   text: z.string().optional(),
+  // Quoted message for `/command`-as-reply (T65): with privacy ON this is how
+  // a product list reaches the bot — the reply carries a `/command`, the
+  // plain-text list arrives attached here. Never nested further by Telegram.
+  reply_to_message: z
+    .object({
+      from: telegramUserSchema.optional(),
+      text: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const telegramUpdateSchema = z.object({

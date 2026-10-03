@@ -12,6 +12,42 @@ export type TelegramChatAnswer = { text?: string; silent: boolean };
 
 const LIST_CAP = 7;
 
+/** Max products added from one message (T65) — reply-lists stay bounded. */
+export const MAX_CHAT_ITEMS = 20;
+
+function quoteRu(names: string[]): string {
+  return names.map((name) => `«${name}»`).join(", ");
+}
+
+function quoteEn(names: string[]): string {
+  return names.map((name) => `"${name}"`).join(", ");
+}
+
+/**
+ * Splits unstructured product text into fragments (T65): lines first, then
+ * `;`, then `,` (covers "milk, bread" and pasted multi-line lists), then
+ * `and/и` ("milk and bread"). Leading bullets/dashes are stripped.
+ */
+export function splitItems(raw: string): string[] {
+  return raw
+    .split(/[\n;]+/u)
+    .flatMap((line) => line.split(/,/u))
+    .flatMap((part) => part.split(/\s+(?:and|и)\s+/iu))
+    .map((part) => part.trim().replace(/^[•\-*]\s+/u, ""))
+    .filter((part) => part !== "")
+    .slice(0, MAX_CHAT_ITEMS);
+}
+
+/** Leading-quantity strip per fragment ("2 milk" → milk + qty "2"). */
+function splitLeadingDigits(raw: string): { name: string; qtyText?: string } {
+  const match = raw.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/u);
+  if (!match) return { name: raw };
+  const amount = (match[1] ?? "").replace(",", ".");
+  const rest = (match[2] ?? "").trim();
+  if (rest === "") return { name: raw };
+  return { name: rest, qtyText: amount };
+}
+
 function langOf(text: string): Lang {
   return /[а-яё]/iu.test(text) ? "ru" : "en";
 }
@@ -82,18 +118,30 @@ type ListResolution =
 export function resolveTelegramList(db: Db, userId: string, command: string): ListResolution {
   const accessible = listListsForUser(db, userId);
   if (accessible.length === 0) return { kind: "no_lists" };
-  const suffix = command.match(/^(.*?)\s+(?:в|in)\s+(.+)$/isu);
-  if (suffix) {
-    const rest = (suffix[1] ?? "").trim();
-    const wanted = (suffix[2] ?? "").trim();
+  const byTitle = (wanted: string): ListResolution | undefined => {
     const matchedId = matchListChoice(
       accessible.map((list) => ({ id: list.id, title: list.title })),
       wanted,
     );
-    if (matchedId !== undefined && rest !== "") {
-      const matched = accessible.find((list) => list.id === matchedId);
-      return { kind: "resolved", listId: matchedId, title: matched?.title ?? wanted, rest };
-    }
+    if (matchedId === undefined) return undefined;
+    const matched = accessible.find((list) => list.id === matchedId);
+    return { kind: "resolved", listId: matchedId, title: matched?.title ?? wanted, rest: "" };
+  };
+  // A list hint without products (a bare "/buy in Second" reply) still
+  // resolves the list — the products come from the quoted message.
+  const hintOnly = command.match(/^(?:в|in)\s+(.+)$/isu);
+  if (hintOnly && (hintOnly[1] ?? "").trim() !== "") {
+    const hinted = byTitle((hintOnly[1] ?? "").trim());
+    if (hinted) return { ...hinted, rest: "" };
+  }
+  const suffix = command.match(/^(.*?)\s+(?:в|in)\s+(.+)$/isu);
+  if (suffix) {
+    const rest = (suffix[1] ?? "").trim();
+    const wanted = (suffix[2] ?? "").trim();
+    const hinted = wanted !== "" ? byTitle(wanted) : undefined;
+    // An empty rest (a bare "/buy in Second" reply) still resolves the list —
+    // the products come from the quoted message (answerForProducts).
+    if (hinted) return { ...hinted, rest };
   }
   if (accessible.length === 1) {
     const only = accessible[0];
@@ -112,17 +160,22 @@ function canEdit(db: Db, listId: string, userId: string): boolean {
 }
 
 /**
- * Answers one linked chat turn. Returns `{ silent: true }` for group chatter
- * with no recognizable intent (never spam a group); everything else is text.
+ * Answers one linked chat turn. `quoted` is the `reply_to_message` text for
+ * `/command`-as-reply (T65): the command carries the list hint
+ * (`/buy in Home`), the quote carries the products.
+ * Returns `{ silent: true }` for group chatter with no recognizable intent
+ * (never spam a group); everything else is text.
  */
 export function handleTelegramChat(
   db: Db,
   userId: string,
   rawCommand: string,
   isPrivate: boolean,
+  quoted = "",
 ): TelegramChatAnswer {
-  const lang = langOf(rawCommand);
-  const resolution = resolveTelegramList(db, userId, rawCommand.trim());
+  const quote = quoted.trim();
+  const lang = langOf(rawCommand !== "" ? rawCommand : quote);
+  const resolution = resolveTelegramList(db, userId, rawCommand.trim() || quote);
   if (resolution.kind === "no_lists") {
     return {
       silent: false,
@@ -144,6 +197,17 @@ export function handleTelegramChat(
   }
   const intent = parseTelegramIntent(resolution.rest);
   if (intent.kind === "unknown") {
+    // No products in the command itself: fall back to the quoted message
+    // (T65 — reply-`/buy`, or a list-hint-only `/buy in Home` reply).
+    if (quote !== "") {
+      return answerForProducts(db, userId, resolution, quote, lang, isPrivate);
+    }
+    // Bare product text (T65): verb-less "milk, bread" — with 2+ fragments
+    // the intent is clearly "add these".
+    const fragments = splitItems(resolution.rest);
+    if (fragments.length >= 2) {
+      return handleAddMany(db, userId, resolution.listId, resolution.title, fragments, lang);
+    }
     if (!isPrivate) return { silent: true };
     return {
       silent: false,
@@ -155,6 +219,47 @@ export function handleTelegramChat(
   }
   return runIntent(db, userId, resolution.listId, resolution.title, intent, lang);
 }
+
+/**
+ * Answers from quoted product text on an already-resolved list: full intent
+ * parsing first (a quoted "bought milk" works too), then the 2+-fragment
+ * add rule, then clarify/silence.
+ */
+function answerForProducts(
+  db: Db,
+  userId: string,
+  resolution: Extract<ListResolution, { kind: "resolved" }>,
+  products: string,
+  lang: Lang,
+  isPrivate: boolean,
+): TelegramChatAnswer {
+  const intent = parseTelegramIntent(products);
+  if (intent.kind !== "unknown") {
+    return runIntent(db, userId, resolution.listId, resolution.title, intent, lang);
+  }
+  const fragments = splitItems(products);
+  if (fragments.length >= 2) {
+    return handleAddMany(db, userId, resolution.listId, resolution.title, fragments, lang);
+  }
+  if (fragments.length === 1 && fragments[0] !== undefined) {
+    return runIntent(
+      db,
+      userId,
+      resolution.listId,
+      resolution.title,
+      { kind: "add", name: fragments[0] },
+      lang,
+    );
+  }
+  if (!isPrivate) return { silent: true };
+  return {
+    silent: false,
+    text:
+      lang === "ru"
+        ? "Не понял. Примеры: «купи молоко», «что купить», «купили молоко»."
+          : 'Didn\'t get that. Try "buy milk", "what to buy", "bought milk".',
+    };
+  }
 
 function runIntent(
   db: Db,
@@ -189,6 +294,10 @@ function runIntent(
     }
     case "add": {
       if (!canEdit(db, listId, userId)) return noRights(title, lang);
+      const fragments = splitItems(intent.name);
+      if (fragments.length > 1) {
+        return handleAddMany(db, userId, listId, title, fragments, lang);
+      }
       const result = smartAddItem(db, listId, intent.name);
       if (intent.qtyText !== undefined && result.created) {
         updateItem(db, result.item.id, { qtyText: intent.qtyText });
@@ -268,6 +377,56 @@ function runIntent(
       return { silent: true };
     }
   }
+}
+
+/**
+ * Adds several products at once (T65): each fragment through `smartAddItem`
+ * (re-activation semantics kept), per-fragment leading quantities applied,
+ * one summary reply.
+ */
+function handleAddMany(
+  db: Db,
+  userId: string,
+  listId: string,
+  title: string,
+  fragments: string[],
+  lang: Lang,
+): TelegramChatAnswer {
+  if (!canEdit(db, listId, userId)) return noRights(title, lang);
+  const added: string[] = [];
+  const kept: string[] = [];
+  for (const fragment of fragments) {
+    const { name, qtyText } = splitLeadingDigits(fragment);
+    if (name === "") continue;
+    const result = smartAddItem(db, listId, name);
+    if (qtyText !== undefined && result.created) {
+      updateItem(db, result.item.id, { qtyText });
+    }
+    (result.created ? added : kept).push(result.item.title);
+  }
+  const quote = lang === "ru" ? quoteRu : quoteEn;
+  if (added.length === 0) {
+    return {
+      silent: false,
+      text:
+        lang === "ru"
+          ? `${quote(kept)} уже в «${title}».`
+          : `${quote(kept)} already on "${title}".`,
+    };
+  }
+  const keptNote =
+    kept.length === 0
+      ? ""
+      : lang === "ru"
+        ? ` ${quote(kept)} уже в списке.`
+        : ` ${quote(kept)} already on the list.`;
+  return {
+    silent: false,
+    text:
+      lang === "ru"
+        ? `Добавил ${quote(added)} в «${title}».${keptNote}`
+        : `Added ${quote(added)} to "${title}".${keptNote}`,
+  };
 }
 
 function noRights(title: string, lang: Lang): TelegramChatAnswer {
