@@ -5,6 +5,7 @@ import { buildApp } from "./app";
 import { loadConfig } from "./config";
 import { createDb, createSqlite } from "./db/client";
 import { runMigrations } from "./db/migrate";
+import { upsertOAuthClient } from "./oauth/oauthService";
 
 const localEnvPath = resolve(".env");
 if (existsSync(localEnvPath)) {
@@ -15,6 +16,9 @@ const config = loadConfig();
 const sqlite = createSqlite(config.databasePath);
 const db = createDb(sqlite);
 runMigrations(db);
+// Replace the migration-seeded dev secret hash with the deploy secret from
+// `.env` (T50): only the sha256 hash is ever persisted.
+upsertOAuthClient(db, config.oauthClientId, config.oauthClientSecret);
 const app = buildApp(config, { db });
 
 try {

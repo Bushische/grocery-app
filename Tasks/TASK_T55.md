@@ -1,0 +1,6 @@
+# T55 — OAuth authorize: interstitial continue page instead of bare 302
+- **Goal:** Account linking completes inside Yandex webviews/Custom Tabs that swallow the automatic cross-origin navigation after `POST /oauth/authorize`.
+- **Inputs:** `apps/api/src/oauth/routes.ts` (`POST /oauth/authorize` → `reply.redirect`, T50), `apps/api/src/oauth/routes.test.ts` (302 pins), the observed failure (`302` received, zero follow-up requests, form visually unchanged, broker never calls `POST /oauth/token`).
+- **Outputs:** success path returns `200 text/html` interstitial ("Аккаунт подтвержден — нажмите Продолжить") with an explicit `<a href="{broker redirect with code+state}">`, plus `meta refresh` + `window.location` auto-advance; failure paths (401/400) re-render the consent form with the error inline instead of JSON (same cause class: invisible-in-webview responses).
+- **Definition of Done:** tests pin `200` + broker URL (code+state echo) present as link href; wrong-password test pins re-rendered HTML (not JSON); `pnpm test && pnpm lint` green; manual: real Yandex tap → interstitial visible → tap Продолжить (and/or auto-advance) → `POST /oauth/token → 200` in api logs → skill linked.
+- **Dependencies:** T50 (OAuth provider), T54 (SW no longer masks the page).

@@ -85,16 +85,26 @@ Access TTL 30 days (mobile-style, like our refresh cookies); refresh TTL 1 year.
 - [ ] `POST /api/alice/webhook` — validate `skill_id`, parse with shared zod schemas,
       dispatch: `account_linking_complete_event` → finish pending request; missing/invalid
       token on private intents → `start_account_linking`; otherwise intent router.
+- [ ] Never stay silent: EVERY request gets a response (docs count silence/timeout as an
+      invalid response; too many → skill blocked). Private + unlinked/invalid token →
+      link card (`start_account_linking` alone, never with `response`); surfaces without
+      `meta.interfaces.account_linking` → graceful text message, never the card; public
+      intents (welcome/help/fallback) may answer without auth. Ref: `auth/make-skill`.
 - [ ] Token→user resolution as a `requireAlice`-style preHandler producing the same
       `request.user` shape as `requireAuth`, so existing list/item guards apply as-is.
-- [ ] Stateless-first: derive everything from DB; `session_state` only for pending
-      disambiguation (e.g. "which list?" when the user owns several; default = first
-      owned list).
+- [ ] Single-list binding: Alice operates on exactly ONE list per user, persisted in
+      `alice_links(userId PK → listId, createdAt)` (keyed by user, so it survives token
+      rotation). Set on the first linked dialog turn: exactly one accessible list →
+      bind silently; several → ask once ("Какой список использовать для Алисы?") with the
+      answer carried via `session_state`, then bind. All intents use the bound list; if it
+      becomes deleted/inaccessible → ask once again and rebind.
+- [ ] Stateless otherwise: derive everything else from DB; `session_state` only for pending
+      disambiguation (link replay, one-time list question).
 
-**Dialog (v1 intent set, Russian):**
+**Dialog (v1 intent set, Russian, all on the bound list — see webhook section):**
 - [ ] Welcome/help (`session.new`, "помощь") — what the skill can do + link prompt.
-- [ ] "Что купить / что в списке" — read TO_BUY (cap 5–7 spoken + "и ещё N"), per default list.
-- [ ] "Добавь молоко / запиши хлеб" — smart-add into default list (reuse `smartAdd` semantics).
+- [ ] "Что купить / что в списке" — read TO_BUY (cap 5–7 spoken + "и ещё N"), per bound list.
+- [ ] "Добавь молоко / запиши хлеб" — smart-add into bound list (reuse `smartAdd` semantics).
 - [ ] "Купили молоко / молоко купили" — move to BOUGHT (T48 top-of-bought semantics apply).
 - [ ] "Верни молоко / снова в покупки" — move back to TO_BUY.
 - [ ] Fallback ("не поняла") + dangerous-context graceful reply
@@ -113,8 +123,8 @@ Access TTL 30 days (mobile-style, like our refresh cookies); refresh TTL 1 year.
 
 **Explicitly out of v1:** web UI for Alice (a "Connected services" page to view/revoke the
 link would be the *second* dedicated folder `apps/web/src/features/alice/` — only if wanted);
-quantity parsing beyond `YANDEX.NUMBER`; prices dialogue; multi-list voice switching beyond
-a default list + one clarifying question; cards/images.
+quantity parsing beyond `YANDEX.NUMBER`; prices dialogue; switching the bound list by voice
+(rebind = relink or a future intent); cards/images.
 
 ## 4. Folder layout (all Alice code isolated)
 
@@ -122,10 +132,12 @@ a default list + one clarifying question; cards/images.
   `protocol.ts` (zod schemas for request/response, shared with tests),
   `webhook.ts` (route registration; thin, like other `routes/`),
   `dialog.ts` (intent router + handlers calling existing `*Service.ts`),
+  `links.ts` (single-list binding: get/set `alice_links`, first-turn bind logic),
   `nlu.ts` (command parsing helpers), `tts.ts` (text→tts + enumeration caps),
   `session.ts` (state save/restore helpers), `*.test.ts` next to each.
   Only touch outside the folder: one-line route registration in `app.ts`,
-  new tables in `db/schema.ts` + migration, shared scope constants in `packages/shared`.
+  new tables in `db/schema.ts` + migration (`alice_links` lands with T51's migration),
+  shared scope constants in `packages/shared`.
 - `apps/api/src/oauth/` — second folder for the provider side: `routes.ts`
   (authorize GET/POST, token POST), `oauthService.ts` (codes/tokens, hashing),
   consent HTML template, tests. Same one-line registration rule.
@@ -143,10 +155,12 @@ a default list + one clarifying question; cards/images.
 - **T-A3 — Webhook skeleton:** `apps/api/src/alice/` with protocol zod schemas,
   `skill_id` check, `requireAlice` token→user resolution, router with
   welcome/help/fallback + `start_account_linking` gating + `account_linking_complete_event`
-  with pending-request replay. Test with captured console-simulator payloads.
-- **T-A4 — Grocery intents:** list/add/buy/unbuy on the default list via existing
-  services; disambiguation question for multi-list users; TTS enumeration caps;
-  dangerous-context reply; full inject tests per intent (happy + unauthenticated + invalid token).
+  with pending-request replay; single-list binding (`alice_links` table + migration,
+  first-turn auto-bind or ask-once via `session_state`, rebind if list lost).
+  Test with captured console-simulator payloads.
+- **T-A4 — Grocery intents:** list/add/buy/unbuy on the bound list via existing
+  services; TTS enumeration caps; dangerous-context reply; full inject tests per intent
+  (happy + unauthenticated + invalid token).
 - **T-A5 — Console + live verification:** skill record, linking-tab values, simulator pass,
   real-voice pass (link → add → list → buy → unbuy → relink-after-revoke), then moderation
   submission. Mostly manual; code only for fixes the pass uncovers.
@@ -157,8 +171,9 @@ a default list + one clarifying question; cards/images.
    bot/captcha protection planned that could block the webview? (v1: no.)
 2. Token TTL: 30-day access + 1-year refresh proposed; shorter access (e.g. 24 h) is safer
    but causes more refresh traffic — Yandex handles it transparently either way.
-3. Default-list choice for multi-list users (propose: first owned list + "which list?"
-   clarification) — confirm desired UX.
+3. ~~Default-list choice for multi-list users (propose: first owned list + "which list?"~~
+   ~~clarification) — confirm desired UX.~~ RESOLVED: Alice is bound to exactly ONE list
+   per user (`alice_links`, set on first linked turn, auto if one list else ask once).
 4. `start_account_linking` on every invalid token can loop a confused user; add a gentle
    "please relink in the Yandex app" voice message — confirm wording tone.
 5. Response-time: our stack is in-process SQLite, but the tunnel adds latency — the live

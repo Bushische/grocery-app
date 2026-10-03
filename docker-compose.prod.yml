@@ -17,6 +17,12 @@ services:
       # credentials:true + no allowlist would reflect any origin.
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Alice integration (T49-T53): OAuth client + skill id for account linking.
+      # Dev defaults (see config.ts) apply when unset — set real values in .env
+      # (see .env.prod.example) or linking stays disabled-in-practice.
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:-alice}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-alice-dev-secret-change-me}
+      ALICE_SKILL_ID: ${ALICE_SKILL_ID:-alice-dev-skill}
     volumes:
       - data:/data
       - uploads:/data/images

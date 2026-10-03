@@ -95,14 +95,16 @@ export const pwaManifest: Partial<ManifestOptions> = {
  * - Precache the hashed app shell (js/css/html/webmanifest/icons) so the app
  *   opens offline and loads instantly on repeat visits.
  * - Navigations fall back to the precached index.html (SPA deep links),
- *   except /api and /static which are never served the app shell.
+ *   except /api, /static, and /oauth which are never served the app shell.
+ *   /oauth serves the Alice account-linking consent page (T50/T54) from the
+ *   api through the nginx /oauth/ proxy — the SW must let it hit the network.
  * - The ONLY runtime cache is /static item images (cache-first). API data is
  *   never cached: it is auth-scoped and must go to the network.
  */
 export const pwaWorkbox: NonNullable<VitePWAOptions["workbox"]> = {
   globPatterns: ["**/*.{js,css,html,webmanifest,png,svg,ico,woff,woff2}"],
   navigateFallback: "index.html",
-  navigateFallbackDenylist: [/^\/api\//, /^\/static\//],
+  navigateFallbackDenylist: [/^\/api\//, /^\/static\//, /^\/oauth\//],
   runtimeCaching: [staticImagesRuntimeCaching],
 };
 

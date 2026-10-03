@@ -11,6 +11,7 @@ The backup + restore drill in §10 was executed for real on 2026-09-27 (see §10
 Phone / browser ──HTTPS──▶ Cloudflare ──▶ cloudflared (tunnel, 64 MB) ──▶ web (nginx, :8080, 32 MB)
                                                                     ├── /          → SPA static files
                                                                     ├── /api/*     → api:3000 (prefix stripped)
+                                                                    ├── /oauth/*   → api:3000 (Alice linking, path kept)
                                                                     └── /static/*  → api:3000 (item images)
 api (node, :3000, 128 MB) ── in-process SQLite (WAL) ──▶ docker volume data     → /data/grocery.db
                                     └── item images (.webp) ──▶ docker volume uploads → /data/images

@@ -3,7 +3,7 @@ import { updateListRequestSchema } from "@grocery/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listDetailQueryKey } from "../../members/hooks/use-list-detail";
 import { listsApi } from "../api/lists-api";
-import { itemsQueryKey } from "./use-items";
+import { LIVE_REFRESH_INTERVAL_MS, itemsQueryKey } from "./use-items";
 
 /** Query key per docs/CONVENTIONS.md → Frontend. */
 export const LISTS_QUERY_KEY = ["lists"] as const;
@@ -12,6 +12,9 @@ export function useLists() {
   return useQuery({
     queryKey: LISTS_QUERY_KEY,
     queryFn: ({ signal }) => listsApi.list(signal),
+    // Same live refresh as useItems: tabs + to-buy/bought counts track other devices.
+    refetchInterval: LIVE_REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
   });
 }
 

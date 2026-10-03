@@ -46,6 +46,25 @@ describe("loadConfig", () => {
   });
 });
 
+describe("loadConfig OAuth client credentials (T50)", () => {
+  it("defaults to the alice client with the seeded dev secret", () => {
+    const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    expect(config.oauthClientId).toBe("alice");
+    expect(config.oauthClientSecret).toBe("alice-dev-secret-change-me");
+  });
+
+  it("reads the client id/secret from the environment", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      OAUTH_CLIENT_ID: "alice",
+      OAUTH_CLIENT_SECRET: "prod-random-secret",
+    });
+    expect(config.oauthClientId).toBe("alice");
+    expect(config.oauthClientSecret).toBe("prod-random-secret");
+  });
+});
+
 describe("loadConfig CORS_ORIGIN production gate (T34)", () => {
   const productionEnv = {
     NODE_ENV: "production",

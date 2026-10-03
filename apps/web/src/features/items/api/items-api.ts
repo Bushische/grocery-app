@@ -31,6 +31,8 @@ export const itemsApi = {
   /** PATCH /items/:id — partial edit; `qtyText: null` clears the quantity. */
   update: (itemId: string, patch: UpdateItemRequest): Promise<Item> =>
     api.patch(`/items/${itemId}`, updateItemRequestSchema.parse(patch), itemSchema),
+  /** DELETE /items/:id → 204 (EDITOR+; docs/API.md → Items). */
+  remove: (itemId: string): Promise<void> => api.del(`/items/${itemId}`),
   /** POST /items/:id/image — multipart, form field "image" (docs/API.md → Items). */
   uploadImage: (itemId: string, image: Blob, filename: string) => {
     const formData = new FormData();

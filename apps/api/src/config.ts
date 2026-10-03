@@ -15,6 +15,9 @@ const envSchema = z.object({
     .transform((value) => value.trim())
     .transform((value) => (value.length === 0 ? undefined : value))
     .optional(),
+  OAUTH_CLIENT_ID: z.string().min(1).default("alice"),
+  OAUTH_CLIENT_SECRET: z.string().min(1).default("alice-dev-secret-change-me"),
+  ALICE_SKILL_ID: z.string().min(1).default("alice-dev-skill"),
 });
 
 export type LogLevel = z.infer<typeof envSchema>["LOG_LEVEL"];
@@ -29,6 +32,9 @@ export type AppConfig = {
   databasePath: string;
   uploadsPath: string;
   corsOrigins: string[] | true;
+  oauthClientId: string;
+  oauthClientSecret: string;
+  aliceSkillId: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -57,5 +63,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databasePath: parsed.DATABASE_PATH,
     uploadsPath: parsed.UPLOADS_PATH,
     corsOrigins: !corsOrigins || corsOrigins.length === 0 ? true : corsOrigins,
+    oauthClientId: parsed.OAUTH_CLIENT_ID,
+    oauthClientSecret: parsed.OAUTH_CLIENT_SECRET,
+    aliceSkillId: parsed.ALICE_SKILL_ID,
   };
 }

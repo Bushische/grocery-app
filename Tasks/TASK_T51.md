@@ -9,9 +9,13 @@
   `requireAuth`), router with welcome/help/fallback; `start_account_linking` answer
   (only when `meta.interfaces.account_linking` exists, never together with `response`);
   `account_linking_complete_event` handling with pending-request replay from
-  `session_state`; one-line registration in `app.ts`.
+  `session_state`; single-list binding — `alice_links(userId PK → listId)` table +
+  migration, `links.ts` get/set (auto-bind when exactly one accessible list, else ask
+  once with the answer carried via `session_state`; rebind when the bound list is
+  gone); one-line registration in `app.ts`.
 - **Definition of Done:** unlinked private intent → link card only; surfaces without
   `account_linking` → graceful message (never the card); linked request → user resolved
   and existing list guards apply; complete-event answers the saved request without
-  repetition; invalid token → link card again; full gate green.
+  repetition; invalid token → link card again; first linked turn binds one list
+  (auto or ask-once; every request answered, never silent); full gate green.
 - **Dependencies:** T50.
