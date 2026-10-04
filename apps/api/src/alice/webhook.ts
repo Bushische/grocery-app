@@ -5,6 +5,7 @@ import { handleAliceGrocery } from "./dialog";
 import { ensureAliceList, matchListChoice, setAliceLink } from "./links";
 import {
   ALICE_AWAITING_CHOICE_KEY,
+  ALICE_LIST_OFFSET_KEY,
   ALICE_PENDING_COMMAND_KEY,
   type AliceRequest,
   type AliceResponse,
@@ -148,10 +149,14 @@ function handlePrivateTurn(
     });
   }
   // Grocery intents (T52) on the bound list; unknown phrasing clarifies.
+  // T79: locale + pagination offset travel into the dialog layer.
+  const rawOffset = body.state?.session?.[ALICE_LIST_OFFSET_KEY];
   return handleAliceGrocery(db, user.id, binding.listId, {
     command: rawCommand,
     nlu: body.request.nlu,
     rawRequest: body.request,
+    locale: body.meta.locale,
+    listOffset: typeof rawOffset === "number" ? rawOffset : undefined,
   });
 }
 

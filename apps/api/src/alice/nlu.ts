@@ -18,6 +18,7 @@ export type AliceMarkupInput = {
 
 export type GroceryIntent =
   | { kind: "list" }
+  | { kind: "next" }
   | { kind: "add"; name: string; qtyText?: string }
   | { kind: "buy"; name: string }
   | { kind: "unbuy"; name: string }
@@ -195,6 +196,29 @@ function parseUnbuyName(command: string): string | undefined {
   return undefined;
 }
 
+const NEXT_COMMANDS = new Set([
+  "дальше",
+  "далее",
+  "еще",
+  "ещё",
+  "next",
+  "more",
+  "show more",
+  "покажи еще",
+  "покажи ещё",
+  "давай дальше",
+]);
+
+function isNextCommand(command: string): boolean {
+  if (NEXT_COMMANDS.has(command)) return true;
+  // "<marker> пожалуйста/please" — strip a trailing politeness word.
+  const parts = command.split(/\s+/u).filter(Boolean);
+  if (parts.length === 2 && (parts[1] === "пожалуйста" || parts[1] === "please")) {
+    return NEXT_COMMANDS.has(parts[0] ?? "");
+  }
+  return false;
+}
+
 function isListCommand(command: string): boolean {
   return (
     command.includes("что купить") ||
@@ -219,6 +243,7 @@ export function parseGroceryIntent(
   const command = normalize(stripPunctuation(rawCommand ?? ""));
   if (command === "") return { kind: "unknown" };
   if (isListCommand(command)) return { kind: "list" };
+  if (isNextCommand(command)) return { kind: "next" };
 
   const isUnbuy = UNBUY_MARKERS.some((marker) => command.includes(marker));
   if (isUnbuy) {

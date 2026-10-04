@@ -28,6 +28,9 @@ export const ALICE_PENDING_COMMAND_KEY = "alice_pending_command";
 /** `session_state` flag marking the ask-once list-choice turn. */
 export const ALICE_AWAITING_CHOICE_KEY = "alice_awaiting_choice";
 
+/** `session_state` key carrying the paginated list readout offset (T79). */
+export const ALICE_LIST_OFFSET_KEY = "alice_list_offset";
+
 const aliceInterfacesSchema = z
   .object({ account_linking: z.object({}).passthrough().optional() })
   .passthrough();

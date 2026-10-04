@@ -145,18 +145,19 @@ describe("T53 simulator pass (DoD flow)", () => {
     expect(replay).not.toHaveProperty("start_account_linking");
     expect(replay.response?.text).toBeDefined();
 
-    // 4. Add → list hears it back → buy → unbuy.
+    // 4. Add → list hears it back → buy → unbuy (T79: one-word acks).
     const added = await turn(buildPayload({ command: "добавь молоко" }), token);
-    expect(added.response?.text).toContain("молоко");
+    expect(added.response?.text).toBe("Добавлено.");
+    expect(added.response?.tts).toContain("+");
 
     const listed = await turn(buildPayload({ command: "что купить" }), token);
     expect(listed.response?.text).toContain("молоко");
 
     const bought = await turn(buildPayload({ command: "купили молоко" }), token);
-    expect(bought.response?.text).toContain("молоко");
+    expect(bought.response?.text).toBe("Куплено.");
 
     const unbought = await turn(buildPayload({ command: "верни молоко" }), token);
-    expect(unbought.response?.text).toContain("молоко");
+    expect(unbought.response?.text).toBe("В покупках.");
 
     const listedAgain = await turn(buildPayload({ command: "что купить" }), token);
     expect(listedAgain.response?.text).toContain("молоко");

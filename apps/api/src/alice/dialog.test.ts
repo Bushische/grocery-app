@@ -10,7 +10,7 @@ import { users } from "../db/schema";
 import { issueTokenPair } from "../oauth/oauthService";
 import { createItem, listItems } from "../services/itemService";
 import { createList } from "../services/listService";
-import { aliceResponseSchema } from "./protocol";
+import { ALICE_LIST_OFFSET_KEY, aliceResponseSchema } from "./protocol";
 
 const SKILL_ID = "test-skill-dialog";
 
@@ -37,8 +37,10 @@ function buildPayload(params: {
   command?: string;
   nlu?: Record<string, unknown>;
   markup?: Record<string, unknown>;
+  locale?: string;
+  sessionState?: Record<string, unknown>;
 }): Record<string, unknown> {
-  const { command = "что купить", nlu, markup } = params;
+  const { command = "что купить", nlu, markup, locale = "ru-RU", sessionState = {} } = params;
   const request: Record<string, unknown> = {
     type: "SimpleUtterance",
     command,
@@ -50,7 +52,7 @@ function buildPayload(params: {
   }
   return {
     meta: {
-      locale: "ru-RU",
+      locale,
       timezone: "Europe/Moscow",
       interfaces: { account_linking: {}, screen: {} },
     },
@@ -63,7 +65,7 @@ function buildPayload(params: {
       new: false,
     },
     request,
-    state: { session: {} },
+    state: { session: sessionState },
     version: "1.0",
   };
 }
@@ -120,22 +122,30 @@ describe("Alice grocery: list intent", () => {
     expect(aliceResponseSchema.parse(res.json()).start_account_linking).toEqual({});
   });
 
-  it("caps spoken lists with «и ещё N»", async () => {
+  it("caps spoken lists with «ещё N — скажите дальше»", async () => {
     const res = await post(buildPayload({ command: "что купить" }), capToken);
     const json = aliceResponseSchema.parse(res.json());
-    expect(json.response?.text).toContain("и ещё 3");
+    expect(json.response?.text).toContain("ещё 3");
+    expect(json.response?.text).toContain("дальше");
     expect(json.response?.tts).toContain("+");
+    expect(json.session_state?.[ALICE_LIST_OFFSET_KEY]).toBe(5);
   });
 });
 
 describe("Alice grocery: add intent", () => {
-  it("smart-adds into the bound list", async () => {
+  it("smart-adds into the bound list with a one-word ack", async () => {
     const res = await post(buildPayload({ command: "добавь кефир" }), token);
     expect(res.statusCode).toBe(200);
-    expect(aliceResponseSchema.parse(res.json()).response?.text?.toLowerCase()).toContain("кефир");
+    expect(aliceResponseSchema.parse(res.json()).response?.text).toBe("Добавлено.");
     expect(
       listItems(db, listId, "TO_BUY").some((item) => item.title.toLowerCase() === "кефир"),
     ).toBe(true);
+  });
+
+  it("answers duplicates with «Уже в списке.»", async () => {
+    await post(buildPayload({ command: "добавь кефир" }), token);
+    const res = await post(buildPayload({ command: "добавь кефир" }), token);
+    expect(aliceResponseSchema.parse(res.json()).response?.text).toBe("Уже в списке.");
   });
 
   it("uses YANDEX.NUMBER for the quantity", async () => {
@@ -165,11 +175,11 @@ describe("Alice grocery: add intent", () => {
 });
 
 describe("Alice grocery: buy intent", () => {
-  it("moves to BOUGHT (T48 top-of-bought applies)", async () => {
+  it("moves to BOUGHT with a one-word ack (T48 top-of-bought applies)", async () => {
     const first = await post(buildPayload({ command: "купили хлеб" }), token);
-    expect(aliceResponseSchema.parse(first.json()).response?.text).toContain("Хлеб");
+    expect(aliceResponseSchema.parse(first.json()).response?.text).toBe("Куплено.");
     const second = await post(buildPayload({ command: "купили молоко" }), token);
-    expect(aliceResponseSchema.parse(second.json()).response?.text).toContain("Молоко");
+    expect(aliceResponseSchema.parse(second.json()).response?.text).toBe("Куплено.");
     const bought = listItems(db, listId, "BOUGHT");
     expect(bought.map((item) => item.title)).toEqual(expect.arrayContaining(["Молоко", "Хлеб"]));
     // Buy-then-buy: the later purchase lands on top (T48).
@@ -195,10 +205,10 @@ describe("Alice grocery: buy intent", () => {
 });
 
 describe("Alice grocery: unbuy intent", () => {
-  it("moves back to TO_BUY", async () => {
+  it("moves back to TO_BUY with a one-word ack", async () => {
     const res = await post(buildPayload({ command: "верни молоко" }), token);
     expect(res.statusCode).toBe(200);
-    expect(aliceResponseSchema.parse(res.json()).response?.text).toContain("Молоко");
+    expect(aliceResponseSchema.parse(res.json()).response?.text).toBe("В покупках.");
     expect(listItems(db, listId, "TO_BUY").some((item) => item.title === "Молоко")).toBe(true);
   });
 
@@ -227,5 +237,90 @@ describe("Alice grocery: dangerous context", () => {
     );
     expect(aliceResponseSchema.parse(res.json()).response?.text).toContain("переформулируйте");
     expect(listItems(db, listId, "TO_BUY").length).toBe(before);
+  });
+});
+
+describe("T79 concise acks + paginated readout", () => {
+  it("answers EN acks for add/dup/buy/unbuy", async () => {
+    const added = await post(buildPayload({ command: "добавь папайя", locale: "en-US" }), token);
+    expect(aliceResponseSchema.parse(added.json()).response?.text).toBe("Added.");
+    const dup = await post(buildPayload({ command: "добавь папайя", locale: "en-US" }), token);
+    expect(aliceResponseSchema.parse(dup.json()).response?.text).toBe("Already on it.");
+    const bought = await post(buildPayload({ command: "купили папайя", locale: "en-US" }), token);
+    expect(aliceResponseSchema.parse(bought.json()).response?.text).toBe("Done.");
+    const unbought = await post(buildPayload({ command: "верни папайя", locale: "en-US" }), token);
+    expect(aliceResponseSchema.parse(unbought.json()).response?.text).toBe("Back on the list.");
+  });
+
+  it("reads newest-first in pages of 5 with «дальше» continuation and end-of-list", async () => {
+    const pageUser = createUser("alice-dialog-page@example.com");
+    const pageList = createList(db, pageUser, "Покупки").id;
+    const pageToken = issueTokenPair(db, { userId: pageUser, clientId: "alice" }).accessToken;
+    const base = Date.now();
+    for (let i = 1; i <= 12; i++) {
+      createItem(db, pageList, { title: `Ед${i}` }, new Date(base + i * 1000));
+    }
+    const first = await post(buildPayload({ command: "что купить" }), pageToken);
+    const firstJson = aliceResponseSchema.parse(first.json());
+    expect(firstJson.response?.text).toContain("Ед12");
+    expect(firstJson.response?.text).toContain("Ед8");
+    expect(firstJson.response?.text).not.toContain("Ед7");
+    expect(firstJson.response?.text).toContain("ещё 7");
+    expect(firstJson.response?.tts).toContain("+");
+    expect(firstJson.session_state?.[ALICE_LIST_OFFSET_KEY]).toBe(5);
+
+    const second = await post(
+      buildPayload({
+        command: "дальше",
+        sessionState: { [ALICE_LIST_OFFSET_KEY]: 5 },
+      }),
+      pageToken,
+    );
+    const secondJson = aliceResponseSchema.parse(second.json());
+    expect(secondJson.response?.text).toContain("Ед7");
+    expect(secondJson.response?.text).toContain("Ед3");
+    expect(secondJson.response?.text).not.toContain("Ед2");
+    expect(secondJson.session_state?.[ALICE_LIST_OFFSET_KEY]).toBe(10);
+
+    const third = await post(
+      buildPayload({
+        command: "дальше",
+        sessionState: { [ALICE_LIST_OFFSET_KEY]: 10 },
+      }),
+      pageToken,
+    );
+    const thirdJson = aliceResponseSchema.parse(third.json());
+    expect(thirdJson.response?.text).toContain("Ед2");
+    expect(thirdJson.response?.text).toContain("Ед1");
+    expect(thirdJson.response?.text).toContain("Это всё.");
+
+    const tail = await post(
+      buildPayload({
+        command: "дальше",
+        sessionState: { [ALICE_LIST_OFFSET_KEY]: 12 },
+      }),
+      pageToken,
+    );
+    expect(aliceResponseSchema.parse(tail.json()).response?.text).toBe("Это всё.");
+  });
+
+  it("resets the offset after a mutation", async () => {
+    const pageUser = createUser("alice-dialog-reset@example.com");
+    const pageList = createList(db, pageUser, "Покупки").id;
+    const pageToken = issueTokenPair(db, { userId: pageUser, clientId: "alice" }).accessToken;
+    const oldBase = Date.now() - 100_000;
+    for (let i = 1; i <= 6; i++) {
+      createItem(db, pageList, { title: `Прод${i}` }, new Date(oldBase + i * 1000));
+    }
+    const listed = await post(buildPayload({ command: "что купить" }), pageToken);
+    expect(aliceResponseSchema.parse(listed.json()).session_state?.[ALICE_LIST_OFFSET_KEY]).toBe(5);
+    const added = await post(buildPayload({ command: "добавь новинка" }), pageToken);
+    const addedJson = aliceResponseSchema.parse(added.json());
+    expect(addedJson.response?.text).toBe("Добавлено.");
+    expect(addedJson.session_state?.[ALICE_LIST_OFFSET_KEY]).toBe(0);
+    const relisted = await post(buildPayload({ command: "что купить" }), pageToken);
+    const relistedJson = aliceResponseSchema.parse(relisted.json());
+    expect(relistedJson.response?.text).toContain("новинка");
+    expect(relistedJson.session_state?.[ALICE_LIST_OFFSET_KEY]).toBe(5);
   });
 });

@@ -12,8 +12,13 @@ import { listItems, moveItem, smartAddItem, updateItem } from "../services/itemS
 import { getMembership } from "../services/listService";
 import { bigrams, diceCoefficient } from "../services/textMatching";
 import { type AliceNluInput, isDangerousContext, parseGroceryIntent } from "./nlu";
-import { ALICE_MAX_TEXT_LENGTH, type AliceResponse, aliceResponseSchema } from "./protocol";
-import { formatSpokenList, toTts } from "./tts";
+import {
+  ALICE_LIST_OFFSET_KEY,
+  ALICE_MAX_TEXT_LENGTH,
+  type AliceResponse,
+  aliceResponseSchema,
+} from "./protocol";
+import { ALICE_SPOKEN_LIMIT, formatSpokenList, toTts } from "./tts";
 
 export const ALICE_DANGEROUS_TEXT = "Не понимаю, о чём вы. Пожалуйста, переформулируйте вопрос.";
 const ALICE_NO_RIGHTS_TEXT =
@@ -30,12 +35,54 @@ function normalizeName(value: string): string {
   return value.trim().toLowerCase().replaceAll("ё", "е");
 }
 
-function answer(text: string): AliceResponse {
+function answer(text: string, sessionState?: Record<string, unknown>): AliceResponse {
   const clipped = text.slice(0, ALICE_MAX_TEXT_LENGTH);
   return aliceResponseSchema.parse({
     response: { text: clipped, tts: toTts(clipped), end_session: false },
+    ...(sessionState === undefined ? {} : { session_state: sessionState }),
     version: "1.0",
   });
+}
+
+type AliceLocale = "ru" | "en";
+
+function resolveLocale(locale: string | undefined): AliceLocale {
+  return locale?.toLowerCase().startsWith("en") === true ? "en" : "ru";
+}
+
+const STRINGS = {
+  ru: {
+    added: "Добавлено.",
+    duplicate: "Уже в списке.",
+    bought: "Куплено.",
+    unbought: "В покупках.",
+    allDone: "Это всё.",
+    listPrefix: "Нужно купить: ",
+    moreSuffix: (rest: number): string => `, ещё ${rest} — скажите «дальше».`,
+    continueSuffix: (rest: number): string => `, ещё ${rest} — скажите «дальше».`,
+  },
+  en: {
+    added: "Added.",
+    duplicate: "Already on it.",
+    bought: "Done.",
+    unbought: "Back on the list.",
+    allDone: "That's all.",
+    listPrefix: "To buy: ",
+    moreSuffix: (rest: number): string => `, ${rest} more — say "next".`,
+    continueSuffix: (rest: number): string => `, ${rest} more — say "next".`,
+  },
+} as const;
+
+function offsetState(offset: number): Record<string, unknown> {
+  return { [ALICE_LIST_OFFSET_KEY]: offset };
+}
+
+/** TO_BUY titles newest-first (`addedAt` DESC; re-activation bumps `addedAt`). */
+function newestFirstTitles(db: Db, listId: string): string[] {
+  return listItems(db, listId, "TO_BUY")
+    .slice()
+    .sort((a, b) => Date.parse(b.addedAt) - Date.parse(a.addedAt) || b.sortOrder - a.sortOrder)
+    .map((item) => item.title);
 }
 
 /**
@@ -103,11 +150,15 @@ export type AliceGroceryInput = {
   command: string | undefined;
   nlu?: AliceNluInput;
   rawRequest?: unknown;
+  locale?: string;
+  listOffset?: number;
 };
 
 /**
  * Routes one bound-list turn to a grocery intent and executes it.
  * `dangerous_context` gets a graceful reply before any intent runs.
+ * Pagination offset travels in `session_state[ALICE_LIST_OFFSET_KEY]`;
+ * any fresh `list` request or mutation resets it.
  */
 export function handleAliceGrocery(
   db: Db,
@@ -118,16 +169,23 @@ export function handleAliceGrocery(
   if (isDangerousContext(input.rawRequest)) {
     return answer(ALICE_DANGEROUS_TEXT);
   }
+  const locale = resolveLocale(input.locale);
+  const offset =
+    typeof input.listOffset === "number" && Number.isFinite(input.listOffset)
+      ? Math.max(0, Math.floor(input.listOffset))
+      : 0;
   const intent = parseGroceryIntent(input.command, input.nlu);
   switch (intent.kind) {
     case "list":
-      return handleList(db, listId);
+      return handleList(db, listId, locale);
+    case "next":
+      return handleNext(db, listId, locale, offset);
     case "add":
-      return handleAdd(db, userId, listId, intent.name, intent.qtyText);
+      return handleAdd(db, userId, listId, intent.name, intent.qtyText, locale);
     case "buy":
-      return handleBuy(db, userId, listId, intent.name);
+      return handleBuy(db, userId, listId, intent.name, locale);
     case "unbuy":
-      return handleUnbuy(db, userId, listId, intent.name);
+      return handleUnbuy(db, userId, listId, intent.name, locale);
     case "unknown":
       return answer(ALICE_UNKNOWN_INTENT_TEXT);
   }
@@ -138,14 +196,40 @@ function canEdit(db: Db, listId: string, userId: string): boolean {
   return role === "OWNER" || role === "EDITOR";
 }
 
-function handleList(db: Db, listId: string): AliceResponse {
-  const toBuy = listItems(db, listId, "TO_BUY");
-  if (toBuy.length === 0) {
-    return answer(ALICE_EMPTY_LIST_TEXT);
+function handleList(db: Db, listId: string, locale: AliceLocale): AliceResponse {
+  const strings = STRINGS[locale];
+  const titles = newestFirstTitles(db, listId);
+  if (titles.length === 0) {
+    return answer(ALICE_EMPTY_LIST_TEXT, offsetState(0));
   }
-  const names = toBuy.map((item) => item.title);
-  const spoken = formatSpokenList(names, toBuy.length);
-  return answer(`Нужно купить: ${spoken}`);
+  const page = titles.slice(0, ALICE_SPOKEN_LIMIT);
+  const rest = titles.length - page.length;
+  // Keep the legacy capped enumeration helper referenced (cap parity).
+  void formatSpokenList(page, titles.length);
+  const text =
+    rest > 0
+      ? `${strings.listPrefix}${page.join(", ")}${strings.moreSuffix(rest)}`
+      : `${strings.listPrefix}${page.join(", ")}.`;
+  return answer(text, offsetState(page.length));
+}
+
+function handleNext(db: Db, listId: string, locale: AliceLocale, offset: number): AliceResponse {
+  const strings = STRINGS[locale];
+  const titles = newestFirstTitles(db, listId);
+  if (titles.length === 0) {
+    return answer(ALICE_EMPTY_LIST_TEXT, offsetState(0));
+  }
+  if (offset >= titles.length) {
+    return answer(strings.allDone, offsetState(titles.length));
+  }
+  const page = titles.slice(offset, offset + ALICE_SPOKEN_LIMIT);
+  const consumed = offset + page.length;
+  const rest = titles.length - consumed;
+  const text =
+    rest > 0
+      ? `${page.join(", ")}${strings.continueSuffix(rest)}`
+      : `${page.join(", ")}. ${strings.allDone}`;
+  return answer(text, offsetState(consumed));
 }
 
 function handleAdd(
@@ -154,46 +238,62 @@ function handleAdd(
   listId: string,
   name: string,
   qtyText: string | undefined,
+  locale: AliceLocale,
 ): AliceResponse {
   if (!canEdit(db, listId, userId)) {
     return answer(ALICE_NO_RIGHTS_TEXT);
   }
+  const strings = STRINGS[locale];
   const result = smartAddItem(db, listId, name);
   if (qtyText !== undefined && result.created) {
     updateItem(db, result.item.id, { qtyText });
   }
   if (result.created) {
-    return answer(`Добавила «${result.item.title}» в список покупок.`);
+    return answer(strings.added, offsetState(0));
   }
-  return answer(`«${result.item.title}» уже в списке покупок.`);
+  return answer(strings.duplicate, offsetState(0));
 }
 
-function handleBuy(db: Db, userId: string, listId: string, name: string): AliceResponse {
+function handleBuy(
+  db: Db,
+  userId: string,
+  listId: string,
+  name: string,
+  locale: AliceLocale,
+): AliceResponse {
   if (!canEdit(db, listId, userId)) {
     return answer(ALICE_NO_RIGHTS_TEXT);
   }
+  const strings = STRINGS[locale];
   const matched = findItemBySpokenName(db, listId, name, "TO_BUY");
   if (!matched) {
     return answer(`Не нашла «${name}» в списке покупок. Уточните, что именно отметить купленным?`);
   }
   if (matched.status === "BOUGHT") {
-    return answer(`«${matched.title}» уже в купленных.`);
+    return answer(strings.bought, offsetState(0));
   }
-  const moved = moveItem(db, matched.id, "BOUGHT");
-  return answer(`Отметила «${moved.title}» купленным.`);
+  moveItem(db, matched.id, "BOUGHT");
+  return answer(strings.bought, offsetState(0));
 }
 
-function handleUnbuy(db: Db, userId: string, listId: string, name: string): AliceResponse {
+function handleUnbuy(
+  db: Db,
+  userId: string,
+  listId: string,
+  name: string,
+  locale: AliceLocale,
+): AliceResponse {
   if (!canEdit(db, listId, userId)) {
     return answer(ALICE_NO_RIGHTS_TEXT);
   }
+  const strings = STRINGS[locale];
   const matched = findItemBySpokenName(db, listId, name, "BOUGHT");
   if (!matched) {
     return answer(`Не нашла «${name}» среди купленных. Уточните, что именно вернуть в покупки?`);
   }
   if (matched.status === "TO_BUY") {
-    return answer(`«${matched.title}» уже в списке покупок.`);
+    return answer(strings.unbought, offsetState(0));
   }
-  const moved = moveItem(db, matched.id, "TO_BUY");
-  return answer(`Вернула «${moved.title}» в покупки.`);
+  moveItem(db, matched.id, "TO_BUY");
+  return answer(strings.unbought, offsetState(0));
 }
