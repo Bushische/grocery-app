@@ -111,12 +111,6 @@ function endOfRunIndex(entries: SectionEntry[], categoryId: string): number {
   return last === -1 ? entries.length : last + 1;
 }
 
-/** Index of the first row of the category run (newly bought → top of run). */
-function topOfRunIndex(entries: SectionEntry[], categoryId: string): number {
-  const first = entries.findIndex((entry) => entry.categoryId === categoryId);
-  return first === -1 ? entries.length : first;
-}
-
 /** Shifts every follower id one slot down, preserving gaps elsewhere. */
 function shiftFollowers(db: Db, followerIds: string[]): void {
   for (const id of followerIds) {
@@ -459,12 +453,12 @@ function findFuzzyMatch(db: Db, listId: string, text: string): ItemRow | undefin
 }
 
 /**
- * Applies one move direction to a fetched row (docs/API.md → Items, T75
- * group-aware): to BOUGHT the item takes the top of its category run in the
- * bought section, to TO_BUY the end of its category run in the to-buy
+ * Applies one move direction to a fetched row (docs/API.md → Items): to
+ * BOUGHT the item takes the top of the bought section (T87: newest first, no
+ * category clustering), to TO_BUY the end of its category run in the to-buy
  * section (a missing run appends as a trailing group); followers shift +1
- * in the same transaction, so groups stay contiguous without touching
- * category sortOrder. Shared by `moveItem` (T9) and smart-add's re-activation.
+ * in the same transaction. Shared by `moveItem` (T9) and smart-add's
+ * re-activation.
  */
 function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
   const listId = row.item.listId;
@@ -472,10 +466,7 @@ function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
   const targetSiblings = orderedSectionEntries(db, listId, target).filter(
     (entry) => entry.id !== row.item.id,
   );
-  const pos =
-    target === "BOUGHT"
-      ? topOfRunIndex(targetSiblings, categoryId)
-      : endOfRunIndex(targetSiblings, categoryId);
+  const pos = target === "BOUGHT" ? 0 : endOfRunIndex(targetSiblings, categoryId);
   let sortOrder: number;
   if (pos >= targetSiblings.length) {
     sortOrder =
@@ -529,10 +520,10 @@ function activateIfBought(db: Db, row: ItemRow, now: Date): Item {
 }
 
 /**
- * `POST /items/:id/move` (docs/API.md → Items, T75 group-aware): toggles the
- * item's status with the direction's timestamps/counters; to BOUGHT at the
- * top of its category run, to TO_BUY at the end of its category run.
- * Same-status moves apply unconditionally (re-buy moves to the top of run).
+ * `POST /items/:id/move` (docs/API.md → Items): toggles the item's status
+ * with the direction's timestamps/counters; to BOUGHT at the top of the
+ * bought section (T87), to TO_BUY at the end of its category run.
+ * Same-status moves apply unconditionally (re-buy moves to the top).
  */
 export function moveItem(db: Db, itemId: string, target: ItemStatus, now: Date = new Date()): Item {
   return db.transaction((tx) => {

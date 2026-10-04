@@ -1584,12 +1584,13 @@ describe("category-grouped inserts (docs/TASKS.md → T75 rule 3)", () => {
     expect(await titles(listId, "to_buy")).toEqual(["D1", "D2", "D3", "O1"]);
   });
 
-  it("moves TO_BUY → BOUGHT at the top of its category run, shifting followers", async () => {
+  it("moves TO_BUY → BOUGHT to the top of the section across categories (T87)", async () => {
     const listId = await createScratchList("Grouped Buy");
     const other = otherCategoryOf(listId).id;
     const dairy = await dairyOf(listId);
-    const d1 = seedItem(listId, dairy, { title: "D1", status: "BOUGHT", sortOrder: 0 });
-    const o1 = seedItem(listId, other, { title: "O1", status: "BOUGHT", sortOrder: 1 });
+    // Dairy run deliberately NOT first: section-top must still win.
+    const o1 = seedItem(listId, other, { title: "O1", status: "BOUGHT", sortOrder: 0 });
+    const d1 = seedItem(listId, dairy, { title: "D1", status: "BOUGHT", sortOrder: 1 });
     const moving = seedItem(listId, dairy, { title: "D-new", status: "TO_BUY", sortOrder: 0 });
 
     const res = await app.inject({
@@ -1600,9 +1601,9 @@ describe("category-grouped inserts (docs/TASKS.md → T75 rule 3)", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().sortOrder).toBe(0);
-    expect(itemById(d1.id)?.sortOrder).toBe(1);
-    expect(itemById(o1.id)?.sortOrder).toBe(2);
-    expect(await titles(listId, "bought")).toEqual(["D-new", "D1", "O1"]);
+    expect(itemById(o1.id)?.sortOrder).toBe(1);
+    expect(itemById(d1.id)?.sortOrder).toBe(2);
+    expect(await titles(listId, "bought")).toEqual(["D-new", "O1", "D1"]);
   });
 
   it("moves BOUGHT → TO_BUY at the end of its category run, shifting followers", async () => {

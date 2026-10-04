@@ -173,6 +173,21 @@ describe("ItemRow swipe-to-action (T76, reworked T84)", () => {
     expect(await screen.findByTestId("edit-sheet-i1")).toBeInTheDocument();
   });
 
+  it("edit sheet digs into full details and closes (T86)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mockCategories(mock);
+    mock.stub();
+    renderContainer();
+
+    await swipeLeftFar();
+    expect(await screen.findByTestId("edit-sheet-i1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("full-details-i1"));
+    expect(await screen.findByTestId("details-page")).toHaveTextContent("/lists/l1/items/i1");
+    expect(screen.queryByTestId("edit-sheet-i1")).not.toBeInTheDocument();
+  });
+
   it("edit sheet saves the title (PATCH) and closes", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
@@ -193,7 +208,7 @@ describe("ItemRow swipe-to-action (T76, reworked T84)", () => {
     await waitFor(() => expect(screen.queryByTestId("edit-sheet-i1")).not.toBeInTheDocument());
   });
 
-  it("right-swipe reveals Delete; tapping it deletes (second gesture confirms)", async () => {
+  it("right-swipe reveals Delete; tapping arms, confirm tap deletes (T85)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.on("DELETE", "/api/items/i1", () => json(204));
@@ -205,13 +220,17 @@ describe("ItemRow swipe-to-action (T76, reworked T84)", () => {
     const del = await screen.findByTestId("delete-i1");
     expect(del).toHaveAttribute("aria-label", "Delete Milk");
     expect(del.className).toMatch(/min-h-11/);
-    expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(0);
 
     fireEvent.click(del);
+    const confirm = await screen.findByTestId("confirm-delete-i1");
+    expect(confirm).toHaveAttribute("aria-label", "Confirm delete Milk");
+    expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(0);
+
+    fireEvent.click(confirm);
     await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
   });
 
-  it("far-right release deletes outright (the slide is the confirmation)", async () => {
+  it("far-right release arms without deleting (T85)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.on("DELETE", "/api/items/i1", () => json(204));
@@ -220,7 +239,8 @@ describe("ItemRow swipe-to-action (T76, reworked T84)", () => {
 
     await swipeRightFar();
 
-    await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
+    expect(await screen.findByTestId("confirm-delete-i1")).toBeInTheDocument();
+    expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(0);
   });
 
   it("vertical scroll never reveals actions", () => {
@@ -282,6 +302,7 @@ describe("ItemRow swipe-to-action (T76, reworked T84)", () => {
     renderContainer();
 
     await swipeRightFar();
+    fireEvent.click(await screen.findByTestId("confirm-delete-i1"));
 
     await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
     expect(await screen.findByRole("alert")).toHaveTextContent(

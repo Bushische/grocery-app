@@ -34,12 +34,12 @@ export interface ItemRowProps {
  * A touch swipe on the row body reveals a real focusable button: swipe left →
  * Edit, swipe right → Delete. T84 rework: the row body is `touch-action:
  * pan-y` (without it Android Chrome never delivers horizontal moves),
- * reveal (~40 px) and commit (~2/3 row width) are separate lines — releasing
- * a revealed row past commit runs the action, shorter swipes snap back and
- * leave tappable buttons. Left commit (or tapping Edit) opens an edit
- * bottom-sheet reusing `ItemEditForm`; right commit deletes outright (the far
- * slide is the confirmation — the button reads `Release to delete` past the
- * line — and tapping Delete after a swipe deletes too). The 403 banner reuses
+ * reveal (~40 px) and commit (~2/3 row width) are separate lines — shorter
+ * swipes snap back and leave tappable buttons. Left commit (or tapping Edit)
+ * opens an edit bottom-sheet reusing `ItemEditForm`. T85: deleting always
+ * takes two deliberate gestures — a far right-slide or a tap on the revealed
+ * Delete button only arms it (`Tap to confirm delete` + Cancel); the confirm
+ * tap deletes. The 403 banner reuses
  * the details-page wording and the optimistic row removal rolls back via
  * useDeleteItem. A press that moved > 10 px (or any revealed row) never
  * toggles on its trailing click — tapping a revealed row dismisses it
@@ -57,7 +57,7 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
 
   const [revealed, setRevealed] = useState<SwipeReveal>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [farDelete, setFarDelete] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
   const startPoint = useRef<{ x: number; y: number } | null>(null);
   const lastDelta = useRef<{ dx: number } | null>(null);
   const bodyRef = useRef<HTMLButtonElement | null>(null);
@@ -95,8 +95,12 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
     const next = swipeRevealForDelta(dx, dy);
     if (next !== null) {
       setRevealed(next);
-      setFarDelete(next === "delete" && swipeCommitForDelta(dx, rowWidth()));
+      if (next !== "delete") setDeleteArmed(false);
     }
+  }
+
+  function disarmDelete() {
+    setDeleteArmed(false);
   }
 
   function handlePointerUp() {
@@ -105,10 +109,12 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
     lastDelta.current = null;
     if (revealed === null || delta === null) return;
     if (!swipeCommitForDelta(delta.dx, rowWidth())) return;
+    // T85: the far slide is deliberate but never destructive by itself —
+    // releasing past commit only arms; the confirm tap deletes.
     if (revealed === "edit") {
       setSheetOpen(true);
     } else {
-      doDelete();
+      setDeleteArmed(true);
     }
   }
 
@@ -120,7 +126,7 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
   function handleTap() {
     if (revealed !== null) {
       setRevealed(null);
-      setFarDelete(false);
+      disarmDelete();
       return;
     }
     if (movedSinceDown.current) return;
@@ -131,7 +137,7 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
     removeItem.mutate(item.id, {
       onSuccess: () => {
         setRevealed(null);
-        setFarDelete(false);
+        disarmDelete();
       },
     });
   }
@@ -155,17 +161,43 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
       data-testid={`item-row-${item.id}`}
     >
       {revealed === "delete" ? (
-        <div className="flex shrink-0 items-center bg-red-50 px-1">
-          <button
-            type="button"
-            disabled={removeItem.isPending}
-            onClick={doDelete}
-            aria-label={`Delete ${item.title}`}
-            data-testid={`delete-${item.id}`}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
-          >
-            {removeItem.isPending ? "Deleting…" : farDelete ? "Release to delete" : "Delete"}
-          </button>
+        <div className="flex shrink-0 items-center gap-1 bg-red-50 px-1">
+          {deleteArmed ? (
+            <>
+              <button
+                type="button"
+                disabled={removeItem.isPending}
+                onClick={doDelete}
+                aria-label={`Confirm delete ${item.title}`}
+                data-testid={`confirm-delete-${item.id}`}
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {removeItem.isPending ? "Deleting…" : "Tap to confirm delete"}
+              </button>
+              <button
+                type="button"
+                disabled={removeItem.isPending}
+                onClick={() => {
+                  disarmDelete();
+                  setRevealed(null);
+                }}
+                aria-label={`Cancel delete ${item.title}`}
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDeleteArmed(true)}
+              aria-label={`Delete ${item.title}`}
+              data-testid={`delete-${item.id}`}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-red-600 hover:bg-red-100"
+            >
+              Delete
+            </button>
+          )}
         </div>
       ) : null}
       <button
@@ -275,6 +307,7 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
           listId={listId}
           open={sheetOpen}
           onClose={() => setSheetOpen(false)}
+          onOpenDetails={onOpenDetails}
         />
       ) : null}
     </li>

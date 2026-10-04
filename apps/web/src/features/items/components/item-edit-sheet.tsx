@@ -9,6 +9,7 @@ export interface ItemEditSheetProps {
   listId: string;
   open: boolean;
   onClose: () => void;
+  onOpenDetails: (itemId: string) => void;
 }
 
 /**
@@ -16,8 +17,10 @@ export interface ItemEditSheetProps {
  * revealed Edit button land here instead of navigating to the details page.
  * Reuses `ItemEditForm` (title/qty/category) with the list's categories;
  * saving invalidates the list caches via `useUpdateItem` and closes.
+ * T86: an `Open full details` action digs into the details page (photos,
+ * prices, danger zone) and closes the sheet.
  */
-export function ItemEditSheet({ item, listId, open, onClose }: ItemEditSheetProps) {
+export function ItemEditSheet({ item, listId, open, onClose, onOpenDetails }: ItemEditSheetProps) {
   const updateItem = useUpdateItem(listId, item.id);
   const categories = useCategories(listId);
 
@@ -30,6 +33,17 @@ export function ItemEditSheet({ item, listId, open, onClose }: ItemEditSheetProp
           className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl"
         >
           <DialogTitle className="text-sm font-medium text-gray-700">Edit {item.title}</DialogTitle>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenDetails(item.id);
+            }}
+            data-testid={`full-details-${item.id}`}
+            className="mt-2 min-h-11 w-full rounded-lg px-3 text-sm font-medium text-blue-700 hover:bg-blue-50"
+          >
+            Open full details
+          </button>
           <div className="mt-3">
             <ItemEditForm
               item={item}
