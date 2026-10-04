@@ -1,0 +1,6 @@
+# T76 — Swipe-to-action on rows: left Edit, right Delete (touch only)
+- **Goal:** No more long-press: swipe a row left for Edit, right for Delete; desktop right-click keeps opening details.
+- **Inputs:** `item-row.tsx` (long-press + right-click → details), details-page two-step delete (`Delete X` → `Confirm delete X`, 403 banner), `useDeleteItem`, TouchSensor 150 ms/5 px + `movedSinceDown` tap-suppress pattern.
+- **Outputs:** Hand-rolled touch swipe on the row body (no new deps, pure helper unit-tested like `reorderedIdsAfterDrag`): horizontal intent wins past threshold, vertical scroll untouched, trailing tap never toggles; swipe left reveals Edit (opens details, same destination as today), swipe right reveals Delete with the same two-step arm→confirm (403 reverts with the existing error path); long-press removed (replaced, avoids gesture fights), desktop right-click → details unchanged; revealed actions are real focusable buttons (≥40 px targets).
+- **Definition of Done:** Touch tests (jsdom pointer/touch events or pure-helper pins): left-swipe→Edit opens details, right-swipe→Delete arms then confirms, scroll-vertical never reveals, tap after swipe never toggles; mouse suite: right-click still opens details, no swipe path; VIEWER delete degrades via the existing 403 path; full gate green.
+- **Dependencies:** T75.

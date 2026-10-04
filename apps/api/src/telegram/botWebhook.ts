@@ -208,7 +208,7 @@ async function handleCallbackChoice(
     request,
     sender,
     chatId,
-    `Теперь этот чат покупает в «${target.title}».\nThis chat now shops for "${target.title}".`,
+    `Теперь этот чат покупает в:\n• ● «${target.title}»\nThis chat now shops for:\n• ● "${target.title}"`,
     miniAppUrl,
   );
 }

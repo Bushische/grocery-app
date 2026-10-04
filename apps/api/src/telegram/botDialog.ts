@@ -223,8 +223,8 @@ function noListsText(lang: Lang): string {
 
 function helpText(lang: Lang): string {
   return lang === "ru"
-    ? "Команды: /grocery_lists — списки и текущий список чата; /use_list <название> — выбрать список чата. Дальше просто «купи молоко». Ещё: «что купить», «купили молоко», «верни молоко»."
-    : 'Commands: /grocery_lists — lists and this chat\'s default; /use_list <name> — set it. Then just "buy milk". Also "what to buy", "bought milk", "unbuy milk".';
+    ? "Команды:\n• /grocery_lists — списки и текущий список чата\n• /use_list <название> — выбрать список чата\n• «купи молоко» — добавить\n• «что купить» — показать покупки\n• «купили молоко» — отметить купленным\n• «верни молоко» — вернуть в покупки"
+    : 'Commands:\n• /grocery_lists — lists and this chat\'s default\n• /use_list <name> — set it\n• "buy milk" — add\n• "what to buy" — show\n• "bought milk" — mark bought\n• "unbuy milk" — return';
 }
 
 /**
@@ -263,27 +263,29 @@ function answerChatCommand(
     if (accessible.length === 0) return { silent: false, text: noListsText(lang) };
     const chatDefault = getChatDefaultWithTitle(db, chatId);
     const quoteName = (title: string): string => (lang === "ru" ? `«${title}»` : `"${title}"`);
-    const names = accessible
-      .map((list) => `${chatDefault?.listId === list.id ? "● " : ""}${quoteName(list.title)}`)
-      .join(", ");
+    const bullets = accessible
+      .map((list) => `• ${chatDefault?.listId === list.id ? "● " : ""}${quoteName(list.title)}`)
+      .join("\n");
     const locked =
       chatDefault && !accessible.some((list) => list.id === chatDefault.listId)
         ? lang === "ru"
-          ? ` 🔒 «${chatDefault.title}» — список этого чата, но у вас нет доступа — попросите владельца поделиться.`
-          : ` 🔒 "${chatDefault.title}" is this chat's default but you have no access — ask the owner to share it.`
+          ? `\n🔒 «${chatDefault.title}» — список этого чата, но у вас нет доступа — попросите владельца поделиться.`
+          : `\n🔒 "${chatDefault.title}" is this chat's default but you have no access — ask the owner to share it.`
         : "";
     const current =
       chatDefault && accessible.some((list) => list.id === chatDefault.listId)
         ? lang === "ru"
-          ? ` Команды без уточнения идут в ● «${chatDefault.title}».`
-          : ` Bare commands go to ● "${chatDefault.title}".`
+          ? `\nКоманды без уточнения идут в ● «${chatDefault.title}».`
+          : `\nBare commands go to ● "${chatDefault.title}".`
         : "";
+    const switchLine =
+      lang === "ru" ? "\nПереключить: /use_list <название>." : "\nSwitch: /use_list <name>.";
     return {
       silent: false,
       text:
         lang === "ru"
-          ? `Списки: ${names}.${current} Переключить: /use_list <название>.${locked}`
-          : `Lists: ${names}.${current} Switch: /use_list <name>.${locked}`,
+          ? `Списки:\n${bullets}${current}${switchLine}${locked}`
+          : `Lists:\n${bullets}${current}${switchLine}${locked}`,
       choices: accessible.map((list) => ({ listId: list.id, title: list.title })),
     };
   }
@@ -310,8 +312,8 @@ function answerChatCommand(
       silent: false,
       text:
         lang === "ru"
-          ? `Теперь этот чат покупает в «${matched.title}».`
-          : `This chat now shops for "${matched.title}".`,
+          ? `Теперь этот чат покупает в:\n• ● «${matched.title}»`
+          : `This chat now shops for:\n• ● "${matched.title}"`,
     };
   }
   return undefined;
@@ -349,19 +351,20 @@ export async function handleTelegramChat(
     return { silent: false, text: noListsText(lang) };
   }
   if (resolution.kind === "need_choice") {
-    const names = resolution.lists.map((list) => `«${list.title}»`).join(", ");
+    const bullets = resolution.lists.map((list) => `• «${list.title}»`).join("\n");
+    const bulletsEn = resolution.lists.map((list) => `• "${list.title}"`).join("\n");
     const locked =
       resolution.lockedTitle === undefined
         ? ""
         : lang === "ru"
-          ? ` 🔒 «${resolution.lockedTitle}» — список этого чата, но у вас нет доступа — попросите владельца поделиться.`
-          : ` 🔒 "${resolution.lockedTitle}" is this chat's default but you have no access — ask the owner to share it.`;
+          ? `\n🔒 «${resolution.lockedTitle}» — список этого чата, но у вас нет доступа — попросите владельца поделиться.`
+          : `\n🔒 "${resolution.lockedTitle}" is this chat's default but you have no access — ask the owner to share it.`;
     return {
       silent: false,
       text:
         lang === "ru"
-          ? `У вас несколько списков: ${names}. Уточните, например: «купи молоко в ${resolution.lists[0]?.title}» или «/use_list ${resolution.lists[0]?.title}».${locked}`
-          : `You have several lists: ${names}. Specify one, e.g. "buy milk in ${resolution.lists[0]?.title}" or "/use_list ${resolution.lists[0]?.title}".${locked}`,
+          ? `У вас несколько списков:\n${bullets}\nУточните, например: «купи молоко в ${resolution.lists[0]?.title}» или «/use_list ${resolution.lists[0]?.title}».${locked}`
+          : `You have several lists:\n${bulletsEn}\nSpecify one, e.g. "buy milk in ${resolution.lists[0]?.title}" or "/use_list ${resolution.lists[0]?.title}".${locked}`,
       choices: resolution.lists.map((list) => ({ listId: list.id, title: list.title })),
     };
   }
@@ -498,15 +501,15 @@ function runIntent(
               : `"${title}" has nothing to buy yet.`,
         };
       }
-      const names = toBuy.slice(0, LIST_CAP).map((item) => item.title);
-      const rest = toBuy.length - names.length;
-      const more = rest > 0 ? (lang === "ru" ? ` и ещё ${rest}` : ` and ${rest} more`) : "";
+      const names = toBuy
+        .slice(0, LIST_CAP)
+        .map((item) => `• ${item.title}`)
+        .join("\n");
+      const rest = toBuy.length - Math.min(toBuy.length, LIST_CAP);
+      const more = rest > 0 ? (lang === "ru" ? `\nи ещё ${rest}` : `\nand ${rest} more`) : "";
       return {
         silent: false,
-        text:
-          lang === "ru"
-            ? `«${title}»: ${names.join(", ")}${more}.`
-            : `"${title}": ${names.join(", ")}${more}.`,
+        text: lang === "ru" ? `«${title}»:\n${names}${more}` : `"${title}":\n${names}${more}`,
       };
     }
     case "add": {
@@ -631,28 +634,29 @@ function handleAddMany(
     }
     added.push(created.title);
   }
-  const quote = lang === "ru" ? quoteRu : quoteEn;
+  const bullet = (name: string): string =>
+    lang === "ru" ? `• ${quoteRu([name])}` : `• ${quoteEn([name])}`;
   if (added.length === 0) {
     return {
       silent: false,
       text:
         lang === "ru"
-          ? `${quote(kept)} уже в «${title}».`
-          : `${quote(kept)} already on "${title}".`,
+          ? `Уже в «${title}»:\n${kept.map(bullet).join("\n")}`
+          : `Already on "${title}":\n${kept.map(bullet).join("\n")}`,
     };
   }
   const keptNote =
     kept.length === 0
       ? ""
       : lang === "ru"
-        ? ` ${quote(kept)} уже в списке.`
-        : ` ${quote(kept)} already on the list.`;
+        ? `\nУже в списке:\n${kept.map(bullet).join("\n")}`
+        : `\nAlready on the list:\n${kept.map(bullet).join("\n")}`;
   return {
     silent: false,
     text:
       lang === "ru"
-        ? `Добавил ${quote(added)} в «${title}».${keptNote}`
-        : `Added ${quote(added)} to "${title}".${keptNote}`,
+        ? `Добавил в «${title}»:\n${added.map(bullet).join("\n")}${keptNote}`
+        : `Added to "${title}":\n${added.map(bullet).join("\n")}${keptNote}`,
   };
 }
 

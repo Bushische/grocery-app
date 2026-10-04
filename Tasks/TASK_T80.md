@@ -1,0 +1,6 @@
+# T80 — Details card: last-5 bought dates + last-5 prices (no chart)
+- **Goal:** The item card shows when it was last bought (up to 5 dates) and the last bought prices as compact rows.
+- **Inputs:** `moveItem` to-BOUGHT transition (single `boughtAt` scalar today — only the latest), `getItemDetail`, details-page price section (`PriceChart` uplot + `item.prices` full history), `docs/DATA_MODEL.md`.
+- **Outputs:** `item_buy_history` table (migration: `item_id CASCADE`, `bought_at`, pruned to the last 5 per item); write on every move-to-BOUGHT (same transaction, no lifecycle/add/unbought events); detail endpoint returns the dates newest-first; card renders a compact date list (hidden when never bought); price section renders the 5 newest observations as rows (date, price, shop, newest-first) with an empty state — full price history stays loaded via the unchanged endpoint for future analysis; chart component removed with its tests.
+- **Definition of Done:** Inject + service tests pin a write per buy, 5-cap pruning, cascade on item delete; component tests pin the bought-dates section (render + empty-hidden) and the 5-row newest-first price list (content + empty state); no uplot import remains on the details route; full gate green.
+- **Dependencies:** T79.

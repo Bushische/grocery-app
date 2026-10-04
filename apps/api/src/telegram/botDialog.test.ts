@@ -131,18 +131,18 @@ describe("splitItems (T65)", () => {
 describe("handleTelegramChat multi-add (T65)", () => {
   it("adds several products with one summary reply", async () => {
     expect(await answerText(soloUser, "buy cheese, butter and 2 yogurt")).toBe(
-      'Added "cheese", "butter", "yogurt" to "Home".',
+      'Added to "Home":\n• "cheese"\n• "butter"\n• "yogurt"',
     );
   });
 
   it("treats a bare multi-line list as products (reply-/buy shape)", async () => {
     expect(await answerText(soloUser, "kefir\nryazhenka")).toBe(
-      'Added "kefir", "ryazhenka" to "Home".',
+      'Added to "Home":\n• "kefir"\n• "ryazhenka"',
     );
   });
 
   it("notes already-listed items instead of duplicating silently", async () => {
-    expect(await answerText(soloUser, "buy kefir, milk")).toContain("already on");
+    expect(await answerText(soloUser, "buy kefir, milk")).toContain("Already on the list:");
   });
 
   it("keeps single-item replies in the singular form", async () => {
@@ -251,7 +251,7 @@ describe("handleTelegramChat grocery intents (T63)", () => {
     createList(db, fresh, "T63");
     expect(await answerText(fresh, "buy apples")).toBe('Added "apples" to "T63".');
     expect(await answerText(fresh, "buy apples")).toBe('"apples" is already on "T63".');
-    expect(await answerText(fresh, "что купить")).toBe("«T63»: apples.");
+    expect(await answerText(fresh, "что купить")).toBe("«T63»:\n• apples");
     expect(await answerText(fresh, "bought apples")).toBe('Marked "apples" as bought.');
     expect(await answerText(fresh, "верни apples")).toBe("Вернул «apples» в покупки.");
   });
@@ -415,5 +415,150 @@ describe("stale chat defaults (T69)", () => {
     expect(await answerText(user, "buy t69-pear", true, "", {}, chat)).toBe(
       'Added "t69-pear" to "Kept".',
     );
+  });
+});
+
+describe("formatted list-family replies (T74)", () => {
+  it("pins /grocery_lists bullets with ● default (EN+RU)", async () => {
+    const chat = `chat:t74-lists-${createId()}`;
+    const user = createUser("tg-t74-lists@example.com");
+    createList(db, user, "First");
+    createList(db, user, "Second");
+    // Two lists created in the same ms tie on createdAt and fall back to
+    // random-id order — accept either order, the bullet format is what's pinned.
+    const before = (await answerText(user, "lists", true, "", {}, chat)) ?? "";
+    expect([
+      'Lists:\n• "First"\n• "Second"\nSwitch: /use_list <name>.',
+      'Lists:\n• "Second"\n• "First"\nSwitch: /use_list <name>.',
+    ]).toContain(before);
+    expect(await answerText(user, "use_list Second", true, "", {}, chat)).toBe(
+      'This chat now shops for:\n• ● "Second"',
+    );
+    const after = (await answerText(user, "lists", true, "", {}, chat)) ?? "";
+    expect(after).toContain('• ● "Second"');
+    expect(after).toContain("Bare commands");
+    expect(after.split("\n")[0]).toBe("Lists:");
+    const ru = (await answerText(user, "списки", true, "", {}, chat)) ?? "";
+    expect(ru).toContain("• ● «Second»");
+    expect(ru.split("\n")[0]).toBe("Списки:");
+  });
+
+  it("pins need-choice bullets with 🔒 line (EN+RU)", async () => {
+    const chatEn = `chat:t74-need-${createId()}`;
+    const user = createUser("tg-t74-need@example.com");
+    createList(db, user, "First");
+    createList(db, user, "Second");
+    // Same-ms createdAt ties fall back to random-id order — accept either.
+    expect([
+      'You have several lists:\n• "First"\n• "Second"\nSpecify one, e.g. "buy milk in First" or "/use_list First".',
+      'You have several lists:\n• "Second"\n• "First"\nSpecify one, e.g. "buy milk in Second" or "/use_list Second".',
+    ]).toContain((await answerText(user, "buy milk", true, "", {}, chatEn)) ?? "");
+    const chatRu = `chat:t74-need-ru-${createId()}`;
+    expect([
+      "У вас несколько списков:\n• «First»\n• «Second»\nУточните, например: «купи молоко в First» или «/use_list First».",
+      "У вас несколько списков:\n• «Second»\n• «First»\nУточните, например: «купи молоко в Second» или «/use_list Second».",
+    ]).toContain((await answerText(user, "купи молоко", true, "", {}, chatRu)) ?? "");
+  });
+
+  it("pins the locked 🔒 line on its own line", async () => {
+    const chat = `chat:t74-locked-${createId()}`;
+    const owner = createUser("tg-t74-owner@example.com");
+    const stranger = createUser("tg-t74-stranger@example.com");
+    createList(db, owner, "Shared");
+    createList(db, stranger, "Mine");
+    expect(await answerText(owner, "buy nails in Shared", true, "", {}, chat)).toContain("Shared");
+    const asked = (await answerText(stranger, "buy bolts", true, "", {}, chat)) ?? "";
+    expect(asked).toBe(
+      'You have several lists:\n• "Mine"\nSpecify one, e.g. "buy milk in Mine" or "/use_list Mine".\n🔒 "Shared" is this chat\'s default but you have no access — ask the owner to share it.',
+    );
+    const lists = (await answerText(stranger, "lists", true, "", {}, chat)) ?? "";
+    expect(lists).toBe(
+      'Lists:\n• "Mine"\nSwitch: /use_list <name>.\n🔒 "Shared" is this chat\'s default but you have no access — ask the owner to share it.',
+    );
+  });
+
+  it("pins /help bullets (EN+RU)", async () => {
+    expect((await answerText(soloUser, "help")) ?? "").toBe(
+      'Commands:\n• /grocery_lists — lists and this chat\'s default\n• /use_list <name> — set it\n• "buy milk" — add\n• "what to buy" — show\n• "bought milk" — mark bought\n• "unbuy milk" — return',
+    );
+    expect((await answerText(soloUser, "помощь")) ?? "").toBe(
+      "Команды:\n• /grocery_lists — списки и текущий список чата\n• /use_list <название> — выбрать список чата\n• «купи молоко» — добавить\n• «что купить» — показать покупки\n• «купили молоко» — отметить купленным\n• «верни молоко» — вернуть в покупки",
+    );
+  });
+
+  it("pins what-to-buy bullets with the more line (EN+RU)", async () => {
+    const user = createUser("tg-t74-what@example.com");
+    createList(db, user, "What");
+    const chat = `chat:t74-what-${createId()}`;
+    await answerText(user, "buy a1, a2, a3, a4, a5, a6, a7, a8", true, "", {}, chat);
+    expect((await answerText(user, "what to buy", true, "", {}, chat)) ?? "").toBe(
+      '"What":\n• a1\n• a2\n• a3\n• a4\n• a5\n• a6\n• a7\nand 1 more',
+    );
+    const ruUser = createUser("tg-t74-what-ru@example.com");
+    createList(db, ruUser, "Что");
+    const chatRu = `chat:t74-what-ru-${createId()}`;
+    await answerText(ruUser, "купи м1, м2", true, "", {}, chatRu);
+    expect((await answerText(ruUser, "что купить", true, "", {}, chatRu)) ?? "").toBe(
+      "«Что»:\n• м1\n• м2",
+    );
+  });
+
+  it("pins add-many bullets incl. kept notes (EN+RU)", async () => {
+    const user = createUser("tg-t74-many@example.com");
+    createList(db, user, "Many");
+    const chat = `chat:t74-many-${createId()}`;
+    expect(await answerText(user, "buy milk, bread", true, "", {}, chat)).toBe(
+      'Added to "Many":\n• "milk"\n• "bread"',
+    );
+    expect(await answerText(user, "buy milk, cheese", true, "", {}, chat)).toBe(
+      'Added to "Many":\n• "cheese"\nAlready on the list:\n• "milk"',
+    );
+    expect(await answerText(user, "buy milk, cheese", true, "", {}, chat)).toBe(
+      'Already on "Many":\n• "milk"\n• "cheese"',
+    );
+    const ruUser = createUser("tg-t74-many-ru@example.com");
+    createList(db, ruUser, "Много");
+    const chatRu = `chat:t74-many-ru-${createId()}`;
+    expect(await answerText(ruUser, "купи молоко, хлеб", true, "", {}, chatRu)).toBe(
+      "Добавил в «Много»:\n• «молоко»\n• «хлеб»",
+    );
+  });
+
+  it("pins /use_list confirms with ● bullets (EN+RU)", async () => {
+    const chat = `chat:t74-use-${createId()}`;
+    const user = createUser("tg-t74-use@example.com");
+    createList(db, user, "First");
+    expect(await answerText(user, "use_list First", true, "", {}, chat)).toBe(
+      'This chat now shops for:\n• ● "First"',
+    );
+    const chatRu = `chat:t74-use-ru-${createId()}`;
+    expect(await answerText(user, "выбери First", true, "", {}, chatRu)).toBe(
+      "Теперь этот чат покупает в:\n• ● «First»",
+    );
+  });
+
+  it("keeps grocery one-liners single-line", async () => {
+    const user = createUser("tg-t74-one@example.com");
+    createList(db, user, "One");
+    const chat = `chat:t74-one-${createId()}`;
+    const added = (await answerText(user, "buy solo-pear", true, "", {}, chat)) ?? "";
+    expect(added).toBe('Added "solo-pear" to "One".');
+    expect(added).not.toContain("\n");
+    const bought = (await answerText(user, "bought solo-pear", true, "", {}, chat)) ?? "";
+    expect(bought).toBe('Marked "solo-pear" as bought.');
+    expect(bought).not.toContain("\n");
+  });
+
+  it("never exceeds Telegram's 4096-char limit", async () => {
+    const user = createUser("tg-t74-cap@example.com");
+    createList(db, user, "Cap");
+    const chat = `chat:t74-cap-${createId()}`;
+    const many = Array.from({ length: 20 }, (_, i) => `cap-item-${i}`).join(", ");
+    const added = (await answerText(user, many, true, "", {}, chat)) ?? "";
+    expect(added.length).toBeLessThan(4096);
+    const listed = (await answerText(user, "what to buy", true, "", {}, chat)) ?? "";
+    expect(listed.length).toBeLessThan(4096);
+    const lists = (await answerText(user, "lists", true, "", {}, chat)) ?? "";
+    expect(lists.length).toBeLessThan(4096);
   });
 });

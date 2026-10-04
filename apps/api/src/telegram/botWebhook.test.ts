@@ -198,7 +198,7 @@ describe("POST /telegram/bot-webhook (T62 plumbing + gating)", () => {
     const res = await postUpdate(messageUpdate({ text: "/buy", replyToText: "milk\nbread" }));
     expect(res.statusCode).toBe(200);
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.text).toBe('Added "milk", "bread" to "TG List".');
+    expect(sent[0]?.text).toBe('Added to "TG List":\n• "milk"\n• "bread"');
   });
 
   it("prefers the command text over the quote (suffix routing in replies)", async () => {
@@ -316,7 +316,9 @@ describe("POST /telegram/bot-webhook callback_query (T70 tap-to-select)", () => 
     expect(res.statusCode).toBe(200);
     expect(answered).toEqual(["cq-1"]);
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.text).toContain("Beta");
+    expect(sent[0]?.text).toBe(
+      'Теперь этот чат покупает в:\n• ● «Beta»\nThis chat now shops for:\n• ● "Beta"',
+    );
     expect(sent[0]?.opts).toEqual({ openAppUrl: MINI_APP_URL });
     sent = [];
     const follow = await postUpdate(
