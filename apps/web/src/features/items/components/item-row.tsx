@@ -25,6 +25,10 @@ export interface ItemRowProps {
  * muted gray content, desaturated color bar, and a dimmed row — while TO_BUY
  * rows keep the normal look; interactions are unaffected.
  *
+ * T77: rows with an attached picture show a decorative 📸 badge by the
+ * age badge (right-aligned, aria-hidden so the row label is unchanged;
+ * muted with the row in bought state).
+ *
  * T76: swipe-to-action replaces the long-press (which fought scrolling/DnD).
  * A touch swipe on the row body reveals a real focusable button: swipe left →
  * Edit (opens details, same destination as long-press/right-click), swipe
@@ -214,6 +218,19 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
             </span>
           ) : null}
         </span>
+        {item.imageFilename != null ? (
+          <span
+            aria-hidden="true"
+            data-testid={`photo-badge-${item.id}`}
+            className={
+              bought
+                ? "shrink-0 self-center px-1 text-xs opacity-60"
+                : "shrink-0 self-center px-1 text-xs"
+            }
+          >
+            📸
+          </span>
+        ) : null}
         <span
           aria-label={`${item.title}: added ${ageBadge} ago`}
           className={
