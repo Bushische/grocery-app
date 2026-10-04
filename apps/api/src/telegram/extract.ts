@@ -69,7 +69,7 @@ const ACTION_QUESTION = {
   type: "choice",
   instructions: "Which grocery action does this chat message request?",
   criteria: {
-    add: "Asks to add groceries: buy/add/купи/добавь, or a bare product list (milk, bread / молоко, хлеб).",
+    add: "Asks to add groceries: buy/add/купи/добавь/need to buy/нужно купить, or a bare product list (milk, bread / молоко, хлеб).",
     list: "Asks what to buy: what to buy/show list/что купить/список.",
     buy: "Marks items as bought: bought/done/купили/куплено.",
     unbuy: "Returns items to the shopping list: unbuy/верни/снова в покупки.",

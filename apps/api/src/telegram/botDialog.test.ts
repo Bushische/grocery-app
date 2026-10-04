@@ -78,6 +78,15 @@ describe("parseTelegramIntent (T63 — EN verbs onto Alice NLU)", () => {
   it("recognizes English list commands and keeps Russian parsing intact", async () => {
     expect(parseTelegramIntent("what to buy")).toEqual({ kind: "list" });
     expect(parseTelegramIntent("show list")).toEqual({ kind: "list" });
+    expect(parseTelegramIntent("need to buy")).toEqual({ kind: "list" });
+    expect(parseTelegramIntent("need to buy: milk, bread")).toEqual({
+      kind: "add",
+      name: "milk, bread",
+    });
+    expect(parseTelegramIntent("нужно купить молоко, хлеб")).toEqual({
+      kind: "add",
+      name: "молоко, хлеб",
+    });
     expect(parseTelegramIntent("купи молоко")).toEqual({ kind: "add", name: "молоко" });
     expect(parseTelegramIntent("что купить")).toEqual({ kind: "list" });
     expect(parseTelegramIntent("blabla").kind).toBe("unknown");
@@ -401,6 +410,16 @@ describe("multi-add exact-only dedup (T78)", () => {
     // … while single-add keeps the smart already-on keep (exact and fuzzy).
     expect(await answerText(user, "buy apples", true, "", {}, chat)).toContain("already on");
     expect(await answerText(user, "buy aple", true, "", {}, chat)).toContain("already on");
+  });
+
+  it("need to buy: adds all fragments end to end (T81)", async () => {
+    const chat = `chat:t81-${createId()}`;
+    const user = createUser("tg-t81@example.com");
+    createList(db, user, "T81");
+    const reply =
+      (await answerText(user, "need to buy: t81-fig1, t81-fig2", true, "", {}, chat)) ?? "";
+    expect(reply).toContain("t81-fig1");
+    expect(reply).toContain("t81-fig2");
   });
 });
 

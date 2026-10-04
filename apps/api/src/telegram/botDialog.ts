@@ -84,6 +84,14 @@ export function parseTelegramIntent(rawCommand: string): GroceryIntent {
   const command = normalize(stripEdgePlease(rawCommand));
   if (command === "") return { kind: "unknown" };
   if (isEnglishListCommand(command)) return { kind: "list" };
+  // "need to buy" (T81): with products it's an add-all ("need to buy: a, b" —
+  // the comma split happens downstream), bare it's a readout request.
+  const needToBuy = command.match(/^(need to buy|нужно купить)\s*:?\s*(.*)$/u);
+  if (needToBuy) {
+    const rest = (needToBuy[2] ?? "").trim();
+    if (rest === "") return { kind: "list" };
+    return parseGroceryIntent(`добавь ${rest}`);
+  }
   return parseGroceryIntent(mapChatVerbs(command));
 }
 
