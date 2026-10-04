@@ -389,7 +389,7 @@ describe("price observation schemas", () => {
     ).toBe(false);
   });
 
-  it("itemDetailSchema extends the item DTO with the prices array", () => {
+  it("itemDetailSchema extends the item DTO with the prices array and buy history", () => {
     const item = {
       id: "i1",
       title: "Milk",
@@ -408,6 +408,7 @@ describe("price observation schemas", () => {
         { price: 1.29, shop: "Rewe", observedAt: "2026-09-26T10:00:00.000Z" },
         { price: 1.19, shop: "Lidl", observedAt: "2026-09-25T10:00:00.000Z" },
       ],
+      buyHistory: ["2026-09-26T10:00:00.000Z"],
     };
     expect(itemDetailSchema.parse(detail)).toEqual(detail);
     expect(itemDetailSchema.safeParse(item).success).toBe(false);

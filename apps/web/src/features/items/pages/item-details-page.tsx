@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiClientError } from "../../../lib/api-client";
 import { useCategories } from "../../lists/hooks/use-categories";
+import { BuyHistory } from "../components/buy-history";
 import { ImageUpload } from "../components/image-upload";
 import { ItemEditForm } from "../components/item-edit-form";
-import { PriceChart } from "../components/price-chart";
 import { PriceForm } from "../components/price-form";
+import { RecentPrices } from "../components/recent-prices";
 import { useItemDetail } from "../hooks/use-item-detail";
 import {
   useAddItemPrice,
@@ -17,8 +18,8 @@ import { useItemListId } from "../hooks/use-item-list-id";
 
 /**
  * Item details page (docs/TASKS.md → T18, the long-press / right-click target):
- * edit title/category/qty, upload a photo (downscaled client-side), and record
- * prices into the uplot history chart (each point labeled price + shop).
+ * edit title/category/qty, upload a photo (downscaled client-side), record
+ * prices, and review the last-bought dates plus the 5 newest price rows (T80).
  * T41: the canonical route is `/lists/:listId/items/:itemId` — the owning list
  * comes from the URL (never navigation state), so reload/deep links keep the
  * category editable and Back returns to that exact list. Legacy `/items/:id`
@@ -134,11 +135,23 @@ export function ItemDetailsPage() {
               onSave={(observation) => addPrice.mutate(observation)}
             />
           </div>
-          {/* Chart below the form, in its own reserved layout space (T28). */}
+          {/* The 5 newest observations as compact rows (T80, no chart). */}
           <div className="mt-4">
-            <PriceChart observations={prices} />
+            <RecentPrices observations={prices} />
           </div>
         </section>
+
+        {item.buyHistory.length > 0 ? (
+          <section
+            aria-label="Buy history"
+            className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200"
+          >
+            <h2 className="text-sm font-medium text-gray-700">Last bought</h2>
+            <div className="mt-3">
+              <BuyHistory dates={item.buyHistory} />
+            </div>
+          </section>
+        ) : null}
 
         <section
           aria-label="Danger zone"

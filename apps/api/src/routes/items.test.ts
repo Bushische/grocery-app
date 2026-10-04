@@ -12,7 +12,7 @@ import { buildApp } from "../app";
 import { loadConfig } from "../config";
 import { type Db, createDb, createSqlite } from "../db/client";
 import { runMigrations } from "../db/migrate";
-import { categories, items, priceObservations, users } from "../db/schema";
+import { categories, itemBuyHistory, items, priceObservations, users } from "../db/schema";
 import * as itemService from "../services/itemService";
 
 const OWNER = { email: "owner@example.com", password: "owner-password" };
@@ -117,6 +117,10 @@ function itemById(itemId: string): ItemRow | undefined {
 
 function observationsOf(itemId: string): (typeof priceObservations.$inferSelect)[] {
   return db.select().from(priceObservations).where(eq(priceObservations.itemId, itemId)).all();
+}
+
+function buyHistoryOf(itemId: string): (typeof itemBuyHistory.$inferSelect)[] {
+  return db.select().from(itemBuyHistory).where(eq(itemBuyHistory.itemId, itemId)).all();
 }
 
 async function smartAdd(listId: string, text: string, token = editorToken) {
@@ -610,6 +614,7 @@ describe("GET /items/:id", () => {
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual([
       "addedAt",
+      "buyHistory",
       "category",
       "currentPrice",
       "daysInList",
@@ -1624,5 +1629,127 @@ describe("category-grouped inserts (docs/TASKS.md → T75 rule 3)", () => {
     expect(itemById(o1.id)?.sortOrder).toBe(2);
     expect(itemById(d1.id)?.sortOrder).toBe(0);
     expect(await titles(listId, "to_buy")).toEqual(["D1", "D-back", "O1"]);
+  });
+});
+
+describe("buy history (T80: last-5 bought dates)", () => {
+  async function move(itemId: string, status: string, token = editorToken) {
+    return app.inject({
+      method: "POST",
+      url: `/items/${itemId}/move`,
+      headers: bearer(token),
+      payload: { status },
+    });
+  }
+
+  async function detail(itemId: string, token = ownerToken) {
+    const res = await app.inject({
+      method: "GET",
+      url: `/items/${itemId}`,
+      headers: bearer(token),
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json() as { buyHistory: string[] };
+  }
+
+  it("writes one history row per move-to-BOUGHT and returns dates newest-first", async () => {
+    const listId = await createScratchList("Buy History Write");
+    const item = seedItem(listId, otherCategoryOf(listId).id, {
+      title: "Milk",
+      status: "TO_BUY",
+      sortOrder: 0,
+    });
+    expect((await detail(item.id)).buyHistory).toEqual([]);
+    expect(buyHistoryOf(item.id)).toHaveLength(0);
+
+    expect((await move(item.id, "bought")).statusCode).toBe(200);
+    expect(buyHistoryOf(item.id)).toHaveLength(1);
+
+    expect((await move(item.id, "to_buy")).statusCode).toBe(200);
+    expect(buyHistoryOf(item.id)).toHaveLength(1);
+
+    expect((await move(item.id, "bought")).statusCode).toBe(200);
+    const rows = buyHistoryOf(item.id);
+    expect(rows).toHaveLength(2);
+
+    const body = await detail(item.id);
+    expect(body.buyHistory).toHaveLength(2);
+    // Newest first.
+    expect([...body.buyHistory].sort().reverse()).toEqual(body.buyHistory);
+    for (const stamp of body.buyHistory) {
+      expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    }
+  });
+
+  it("prunes history to the last 5 per item", async () => {
+    const listId = await createScratchList("Buy History Cap");
+    const item = seedItem(listId, otherCategoryOf(listId).id, {
+      title: "Eggs",
+      status: "TO_BUY",
+      sortOrder: 0,
+    });
+    for (let round = 0; round < 7; round += 1) {
+      expect((await move(item.id, "bought")).statusCode).toBe(200);
+      expect((await move(item.id, "to_buy")).statusCode).toBe(200);
+    }
+    expect((await move(item.id, "bought")).statusCode).toBe(200);
+    expect(buyHistoryOf(item.id)).toHaveLength(5);
+    expect((await detail(item.id)).buyHistory).toHaveLength(5);
+  });
+
+  it("writes history on re-buy of an already-BOUGHT item", async () => {
+    const listId = await createScratchList("Buy History Rebuy");
+    const item = seedItem(listId, otherCategoryOf(listId).id, {
+      title: "Butter",
+      status: "TO_BUY",
+      sortOrder: 0,
+    });
+    expect((await move(item.id, "bought")).statusCode).toBe(200);
+    expect((await move(item.id, "bought")).statusCode).toBe(200);
+    expect(buyHistoryOf(item.id)).toHaveLength(2);
+  });
+
+  it("writes nothing on create, smart-add, or move-to-TO_BUY", async () => {
+    const listId = await createScratchList("Buy History Silent");
+    const created = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/items`,
+      headers: bearer(editorToken),
+      payload: { title: "Milk" },
+    });
+    expect(created.statusCode).toBe(201);
+    const createdId = created.json().id as string;
+    expect(buyHistoryOf(createdId)).toHaveLength(0);
+
+    const smart = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/items/smart-add`,
+      headers: bearer(editorToken),
+      payload: { text: "Fresh Thing" },
+    });
+    expect([200, 201]).toContain(smart.statusCode);
+    expect(buyHistoryOf(smart.json().item.id as string)).toHaveLength(0);
+
+    expect((await move(createdId, "bought")).statusCode).toBe(200);
+    expect((await move(createdId, "to_buy")).statusCode).toBe(200);
+    expect(buyHistoryOf(createdId)).toHaveLength(1);
+  });
+
+  it("cascades buy history on item delete", async () => {
+    const listId = await createScratchList("Buy History Cascade");
+    const item = seedItem(listId, otherCategoryOf(listId).id, {
+      title: "Milk",
+      status: "TO_BUY",
+      sortOrder: 0,
+    });
+    expect((await move(item.id, "bought")).statusCode).toBe(200);
+    expect(buyHistoryOf(item.id)).toHaveLength(1);
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/items/${item.id}`,
+      headers: bearer(editorToken),
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(buyHistoryOf(item.id)).toHaveLength(0);
   });
 });

@@ -11,14 +11,6 @@ import { createApiFetchMock, json } from "../../../test/mock-api";
 import { ItemDetailsPage } from "./item-details-page";
 import "../../../test/setup";
 
-const { uPlotCtor } = vi.hoisted(() => ({
-  uPlotCtor: vi.fn((_opts: unknown, _data: unknown, _target: unknown) => ({
-    destroy: vi.fn(),
-  })),
-}));
-// jsdom cannot rasterize — the chart's data/legend logic is asserted via this mock.
-vi.mock("uplot", () => ({ default: uPlotCtor }));
-
 const USER = { id: "u1", email: "alex@example.com", role: "admin" } as const;
 const CATEGORIES = [
   { id: "c1", title: "Other", color: "#6B7280", sortOrder: 0, itemCount: 1 },
@@ -44,6 +36,7 @@ function detailFixture(over: Partial<ItemDetail> = {}): ItemDetail {
     imageFilename: null,
     currentPrice: null,
     prices: [],
+    buyHistory: [],
     ...over,
   };
 }
@@ -93,19 +86,13 @@ function renderPage(initialPath = "/lists/l1/items/i1"): void {
   );
 }
 
-function pricePoints(): HTMLElement[] {
-  return screen.getAllByTestId("price-point");
+function recentPrices(): HTMLElement[] {
+  return screen.getAllByTestId("recent-price");
 }
 
-function chartData(): number[][] {
-  const last = uPlotCtor.mock.calls.at(-1);
-  if (!last) throw new Error("uPlot was never constructed");
-  return last[1] as number[][];
-}
 beforeEach(() => {
   detail = detailFixture();
   useAuthStore.setState({ accessToken: "t", user: { ...USER } });
-  uPlotCtor.mockClear();
 });
 
 afterEach(() => {
@@ -119,6 +106,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
       imageFilename: "i1-abc.webp",
       currentPrice: observation(),
       prices: [observation()],
+      buyHistory: [OBSERVED_AT],
     });
     const mock = createApiFetchMock();
     mock.on("GET", "/api/items/i1", () => json(200, detail));
@@ -131,12 +119,11 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("c1");
     expect(screen.getByRole("option", { name: "Dairy" })).toBeInTheDocument();
     expect(screen.getByTestId("item-image")).toHaveAttribute("src", "/static/i1-abc.webp");
-    // Single point → readable placeholder, no (degenerate) chart (T28).
-    expect(screen.getByTestId("price-chart-placeholder")).toBeInTheDocument();
-    expect(screen.queryByTestId("price-chart")).not.toBeInTheDocument();
-    expect(uPlotCtor).not.toHaveBeenCalled();
-    expect(screen.getByTestId("price-point")).toHaveTextContent("1.99");
-    expect(screen.getByTestId("price-point")).toHaveTextContent("Lidl");
+    // T80: the 5 newest observations render as compact rows (no chart).
+    expect(screen.getByTestId("recent-price")).toHaveTextContent("1.99");
+    expect(screen.getByTestId("recent-price")).toHaveTextContent("Lidl");
+    // T80: the last-bought dates render newest-first.
+    expect(screen.getByTestId("buy-history-date")).toHaveTextContent("25 Sep 2026");
   });
 
   it("saves edits via PATCH /items/:id and shows the refreshed item", async () => {
@@ -175,7 +162,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("c2");
   });
 
-  it("adds a price (DoD): POST /items/:id/prices adds a point to the chart", async () => {
+  it("adds a price (DoD): POST /items/:id/prices adds a row to the recent list", async () => {
     detail = detailFixture({ prices: [observation()], currentPrice: observation() });
     const mock = createApiFetchMock();
     mock.on("GET", "/api/items/i1", () => json(200, detail));
@@ -194,11 +181,8 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     const user = userEvent.setup();
     renderPage();
 
-    const legendBefore = await screen.findByTestId("price-point");
-    expect(legendBefore).toHaveTextContent("1.99");
-    // Single point → placeholder, no chart yet (T28).
-    expect(screen.getByTestId("price-chart-placeholder")).toBeInTheDocument();
-    expect(uPlotCtor).not.toHaveBeenCalled();
+    const rowBefore = await screen.findByTestId("recent-price");
+    expect(rowBefore).toHaveTextContent("1.99");
 
     await user.type(screen.getByLabelText("Price"), "2.5");
     await user.type(screen.getByLabelText("Shop (optional)"), "Netto");
@@ -210,27 +194,20 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
         shop: "Netto",
       }),
     );
-    // The refetched history flows into the chart: two points, oldest → newest.
-    await waitFor(() => expect(uPlotCtor).toHaveBeenCalledTimes(1));
-    expect(chartData()[1]).toEqual([1.99, 2.5]);
-    await waitFor(() => expect(pricePoints()).toHaveLength(2));
-    // T45: legend rows are newest-first — the just-added price sits on top.
-    const points = pricePoints();
-    expect(points[0]).toHaveTextContent("2.50");
-    expect(points[0]).toHaveTextContent("Netto");
-    expect(points[1]).toHaveTextContent("1.99");
-    expect(points[1]).toHaveTextContent("Lidl");
+    // The refetched history flows into the rows: two rows, newest first.
+    await waitFor(() => expect(recentPrices()).toHaveLength(2));
+    const rows = recentPrices();
+    expect(rows[0]).toHaveTextContent("2.50");
+    expect(rows[0]).toHaveTextContent("Netto");
+    expect(rows[1]).toHaveTextContent("1.99");
+    expect(rows[1]).toHaveTextContent("Lidl");
 
-    // T28: the chart lives below the price+shop form, in its own reserved
-    // space (fixed height, positioned, clipped — cannot overlap the inputs).
+    // T80: the rows live below the price+shop form.
     const addPriceButton = screen.getByRole("button", { name: "Add price" });
-    const chart = screen.getByTestId("price-chart");
+    const firstRow = rows[0]!;
     expect(
-      addPriceButton.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING,
+      addPriceButton.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(chart).toHaveStyle({ height: "200px" });
-    expect(chart.className).toContain("relative");
-    expect(chart.className).toContain("overflow-hidden");
   });
 
   it("blocks an empty price submission client-side", async () => {
@@ -275,14 +252,76 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
         shop: "",
       }),
     );
-    // The refetched history flows into the legend (T45: rows render in API
-    // order, newest first): the new point renders only price + date — no
-    // dangling shop label.
-    await waitFor(() => expect(pricePoints()).toHaveLength(2));
-    const points = pricePoints();
+    // The refetched history flows into the rows (newest first): the new
+    // row renders only price + date — no dangling shop label.
+    await waitFor(() => expect(recentPrices()).toHaveLength(2));
+    const points = recentPrices();
     expect(points[0]?.textContent).toBe("1.2025 Sep 2026");
     expect(points[1]).toHaveTextContent("1.99");
     expect(points[1]).toHaveTextContent("Lidl");
+  });
+
+  it("shows the last-bought dates newest-first (T80 DoD)", async () => {
+    detail = detailFixture({
+      buyHistory: [
+        "2026-09-25T10:00:00.000Z",
+        "2026-09-20T10:00:00.000Z",
+        "2026-09-10T10:00:00.000Z",
+      ],
+    });
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.stub();
+    renderPage();
+
+    await screen.findByDisplayValue("Milk");
+    expect(screen.getByRole("region", { name: "Buy history" })).toBeInTheDocument();
+    const dates = screen.getAllByTestId("buy-history-date");
+    expect(dates).toHaveLength(3);
+    expect(dates[0]).toHaveTextContent("25 Sep 2026");
+    expect(dates[1]).toHaveTextContent("20 Sep 2026");
+    expect(dates[2]).toHaveTextContent("10 Sep 2026");
+  });
+
+  it("hides the buy-history section when the item was never bought (T80 DoD)", async () => {
+    detail = detailFixture({ buyHistory: [] });
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.stub();
+    renderPage();
+
+    await screen.findByDisplayValue("Milk");
+    expect(screen.queryByRole("region", { name: "Buy history" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("buy-history-date")).not.toBeInTheDocument();
+  });
+
+  it("shows only the 5 newest prices with an empty state when none exist (T80 DoD)", async () => {
+    detail = detailFixture({ buyHistory: [] });
+    const mock = createApiFetchMock();
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+    mock.stub();
+    renderPage();
+
+    await screen.findByDisplayValue("Milk");
+    expect(screen.getByTestId("recent-prices-empty")).toHaveTextContent("No prices recorded yet.");
+
+    detail = detailFixture({
+      prices: [
+        "2026-09-25T10:00:00.000Z",
+        "2026-09-24T10:00:00.000Z",
+        "2026-09-23T10:00:00.000Z",
+        "2026-09-22T10:00:00.000Z",
+        "2026-09-21T10:00:00.000Z",
+        "2026-09-20T10:00:00.000Z",
+        "2026-09-19T10:00:00.000Z",
+      ].map((observedAt, index) => observation({ observedAt, price: 1 + index / 100 })),
+    });
+    mock.on("GET", "/api/items/i1", () => json(200, detail));
+    renderPage("/lists/l1/items/i1");
+    await waitFor(() => expect(screen.getAllByTestId("recent-price")).toHaveLength(5));
   });
 
   it("round-trips an image (DoD): pick → client downscale → multipart POST → stored /static URL", async () => {

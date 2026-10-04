@@ -43,6 +43,13 @@
       "when": 1791047930231,
       "tag": "0005_naive_sphinx",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791107668281,
+      "tag": "0006_steady_stingray",
+      "breakpoints": true
     }
   ]
 }

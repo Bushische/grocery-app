@@ -280,8 +280,12 @@ export const smartAddResponseSchema = z.object({
 });
 export type SmartAddResponse = z.infer<typeof smartAddResponseSchema>;
 
-/** Response of `GET /items/:id` — the item (incl. currentPrice) plus its price history, newest first. */
-export const itemDetailSchema = itemSchema.extend({ prices: z.array(priceObservationSchema) });
+/** Response of `GET /items/:id` — the item (incl. currentPrice) plus its price history, newest first,
+ * and its last-bought dates (up to 5, newest first; T80). */
+export const itemDetailSchema = itemSchema.extend({
+  prices: z.array(priceObservationSchema),
+  buyHistory: z.array(isoDateTimeSchema),
+});
 export type ItemDetail = z.infer<typeof itemDetailSchema>;
 
 // --- Suggest & Search (docs/API.md → Suggest & Search; docs/TASKS.md → T12) ---

@@ -136,6 +136,21 @@ export const priceObservations = sqliteTable(
   (t) => [index("prices_item_observed_idx").on(t.itemId, t.observedAt)],
 );
 
+// --- Last-bought dates (T80) ---
+// One row per move-to-BOUGHT transition; pruned to the last 5 per item in the
+// same transaction. Read newest-first by getItemDetail as `buyHistory`.
+export const itemBuyHistory = sqliteTable(
+  "item_buy_history",
+  {
+    id: text("id").primaryKey(), // cuid2
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    boughtAt: integer("bought_at", { mode: "timestamp" }).notNull().default(now),
+  },
+  (t) => [index("buy_history_item_bought_idx").on(t.itemId, t.boughtAt)],
+);
+
 // --- Alice single-list binding (docs/ALICE_PLAN.md → §2, webhook section) ---
 // Alice operates on exactly ONE list per user, keyed by user so the binding
 // survives token rotation. Set on the first linked dialog turn (auto when the

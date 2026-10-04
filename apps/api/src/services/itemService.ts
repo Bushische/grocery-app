@@ -8,9 +8,9 @@ import type {
   UpdateItemRequest,
 } from "@grocery/shared";
 import { createId } from "@paralleldrive/cuid2";
-import { and, asc, eq, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { categories, items } from "../db/schema";
+import { categories, itemBuyHistory, items } from "../db/schema";
 import { FastifyHttpError } from "../errors";
 import { DEFAULT_CATEGORY_COLOR, DEFAULT_CATEGORY_TITLE } from "./listService";
 import { currentPriceOf, currentPricesByItem, listAllPriceObservations } from "./priceService";
@@ -235,6 +235,46 @@ export function listItems(
   return rows.map((row) => toItemDto(row, now, currentPrices.get(row.item.id) ?? null));
 }
 
+/** Max retained buy-history rows per item (T80: last-5 bought dates). */
+export const MAX_BUY_HISTORY = 5;
+
+/** Last-bought dates of an item, newest first, as ISO 8601 strings (T80). */
+export function listBuyHistory(db: Db, itemId: string): string[] {
+  return db
+    .select({ boughtAt: itemBuyHistory.boughtAt })
+    .from(itemBuyHistory)
+    .where(eq(itemBuyHistory.itemId, itemId))
+    .orderBy(desc(itemBuyHistory.boughtAt), desc(sql`rowid`))
+    .limit(MAX_BUY_HISTORY)
+    .all()
+    .map((row) => row.boughtAt.toISOString());
+}
+
+/**
+ * Records one move-to-BOUGHT transition and prunes the item's history to the
+ * last 5 rows. Runs inside the caller's move transaction (same `tx`).
+ */
+function recordBuy(db: Db, itemId: string, now: Date): void {
+  db.insert(itemBuyHistory).values({ id: createId(), itemId, boughtAt: now }).run();
+  const rows = db
+    .select({ id: itemBuyHistory.id })
+    .from(itemBuyHistory)
+    .where(eq(itemBuyHistory.itemId, itemId))
+    .orderBy(desc(itemBuyHistory.boughtAt), desc(sql`rowid`))
+    .all();
+  const extras = rows.slice(MAX_BUY_HISTORY);
+  if (extras.length > 0) {
+    db.delete(itemBuyHistory)
+      .where(
+        inArray(
+          itemBuyHistory.id,
+          extras.map((row) => row.id),
+        ),
+      )
+      .run();
+  }
+}
+
 /** `GET /items/:id` — the item DTO (incl. currentPrice) plus its price history (docs/API.md → Items). */
 export function getItemDetail(db: Db, itemId: string, now: Date = new Date()): ItemDetail {
   const row = getItemRow(db, itemId);
@@ -244,6 +284,7 @@ export function getItemDetail(db: Db, itemId: string, now: Date = new Date()): I
   return {
     ...toItemDto(row, now, currentPriceOf(db, itemId)),
     prices: listAllPriceObservations(db, itemId),
+    buyHistory: listBuyHistory(db, itemId),
   };
 }
 
@@ -468,6 +509,9 @@ function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
   const updated = db.update(items).set(set).where(eq(items.id, row.item.id)).returning().get();
   if (!updated) {
     throw itemNotFound(row.item.id);
+  }
+  if (target === "BOUGHT") {
+    recordBuy(db, row.item.id, now);
   }
   return toItemDto({ item: updated, category: row.category }, now, currentPriceOf(db, updated.id));
 }

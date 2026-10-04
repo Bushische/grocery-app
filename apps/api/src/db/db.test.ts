@@ -4,7 +4,15 @@ import { describe, expect, it } from "vitest";
 import { seedDatabase } from "../../scripts/seed";
 import { createDb, createSqlite } from "./client";
 import { runMigrations } from "./migrate";
-import { categories, groceryLists, items, listMembers, priceObservations, users } from "./schema";
+import {
+  categories,
+  groceryLists,
+  itemBuyHistory,
+  items,
+  listMembers,
+  priceObservations,
+  users,
+} from "./schema";
 
 function freshDb() {
   const sqlite = createSqlite(":memory:");
@@ -33,6 +41,7 @@ describe("migrations", () => {
       "categories",
       "items",
       "price_observations",
+      "item_buy_history",
     ]) {
       expect(names).toContain(table);
     }
@@ -125,6 +134,7 @@ describe("migrations", () => {
     db.insert(priceObservations)
       .values({ id: "p1", itemId: item.id, priceCents: 119, shop: "Lidl" })
       .run();
+    db.insert(itemBuyHistory).values({ id: "b1", itemId: item.id, boughtAt: new Date() }).run();
 
     // Deleting a category that still has items is rejected (ON DELETE RESTRICT).
     expect(() => db.delete(categories).where(eq(categories.id, category.id)).run()).toThrowError(
@@ -136,6 +146,35 @@ describe("migrations", () => {
     expect(db.select().from(categories).all()).toHaveLength(0);
     expect(db.select().from(items).all()).toHaveLength(0);
     expect(db.select().from(priceObservations).all()).toHaveLength(0);
+    expect(db.select().from(itemBuyHistory).all()).toHaveLength(0);
+  });
+
+  it("cascades buy history on item delete (T80)", () => {
+    const { db } = freshDb();
+    const user = db
+      .insert(users)
+      .values({ id: "u1", email: "u1@test.local", passwordHash: "x" })
+      .returning()
+      .get();
+    const list = db
+      .insert(groceryLists)
+      .values({ id: "l1", title: "Weekly", ownerId: user.id })
+      .returning()
+      .get();
+    const category = db
+      .insert(categories)
+      .values({ id: "c1", listId: list.id, title: "Other", color: "#6B7280" })
+      .returning()
+      .get();
+    const item = db
+      .insert(items)
+      .values({ id: "i1", listId: list.id, categoryId: category.id, title: "Milk" })
+      .returning()
+      .get();
+    db.insert(itemBuyHistory).values({ id: "b1", itemId: item.id, boughtAt: new Date() }).run();
+    expect(db.select().from(itemBuyHistory).all()).toHaveLength(1);
+    db.delete(items).where(eq(items.id, item.id)).run();
+    expect(db.select().from(itemBuyHistory).all()).toHaveLength(0);
   });
 });
 
