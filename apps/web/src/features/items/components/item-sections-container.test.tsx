@@ -10,7 +10,8 @@ import { createApiFetchMock, json } from "../../../test/mock-api";
 import { itemsQueryKey, useItems } from "../../lists/hooks/use-items";
 import { useCreateItem } from "../hooks/use-create-item";
 import { useReorderItems } from "../hooks/use-item-mutations";
-import { reorderedIdsAfterDrag } from "./item-sections";
+import { groupAwareReorderedIds, reorderedIdsAfterDrag } from "./item-sections";
+import { ItemSections } from "./item-sections";
 import { ItemSectionsContainer } from "./item-sections-container";
 import "../../../test/setup";
 
@@ -129,7 +130,7 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     vi.useRealTimers();
   });
 
-  it("renders the category color bar, title, quantity, days badge, and handle only on TO_BUY", () => {
+  it("renders the category color bar, title, quantity, days badge, and handles in both sections (T75)", () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.stub();
@@ -145,7 +146,7 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     const milkBadge = screen.getByLabelText(/Milk: added \d+d ago/);
     expect(milkBadge).toHaveTextContent(/^\d+d$/);
     expect(screen.getByTestId("handle-i1")).toBeInTheDocument();
-    expect(screen.queryByTestId("handle-i3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("handle-i3")).toBeInTheDocument();
   });
 
   it("toggles TO_BUY → BOUGHT when the row body is tapped (T27 DoD)", async () => {
@@ -573,5 +574,132 @@ describe("To buy section header count (docs/TASKS.md → T39, client-derived)", 
     serverItems = { items: [TO_BUY[1]!, ...BOUGHT] }; // i1 was deleted server-side
     queryClient.invalidateQueries({ queryKey: itemsQueryKey("l1") });
     expect(await screen.findByRole("heading", { name: "To buy (1)" })).toBeInTheDocument();
+  });
+});
+
+describe("ItemSections grouped lists (T75)", () => {
+  function groupedItem(
+    id: string,
+    title: string,
+    status: "TO_BUY" | "BOUGHT",
+    sortOrder: number,
+    categoryId: string,
+  ): Item {
+    return {
+      id,
+      title,
+      qtyText: null,
+      status,
+      sortOrder,
+      addedAt: ADDED_AT,
+      daysInList: 0,
+      category: { id: categoryId, title: categoryId, color: "#3B82F6" },
+      imageFilename: null,
+      currentPrice: null,
+    };
+  }
+
+  it("renders both sections grouped by category with handles on every row", () => {
+    createApiFetchMock().stub();
+    const toBuy = [
+      groupedItem("b1", "B1", "TO_BUY", 2, "b"),
+      groupedItem("a1", "A1", "TO_BUY", 0, "a"),
+      groupedItem("a2", "A2", "TO_BUY", 1, "a"),
+    ];
+    const bought = [groupedItem("c1", "C1", "BOUGHT", 0, "c")];
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ItemSections
+            toBuy={toBuy}
+            bought={bought}
+            onReorder={() => {}}
+            onMove={() => {}}
+            onOpenDetails={() => {}}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Groups ordered by first-item position; interleaved input coalesces.
+    expect(screen.getByTestId("group-to_buy-a")).toBeInTheDocument();
+    expect(screen.getByTestId("group-to_buy-b")).toBeInTheDocument();
+    expect(screen.getByTestId("group-bought-c")).toBeInTheDocument();
+    const rows = screen.getAllByTestId(/^item-row-/).map((row) => row.dataset.testid);
+    expect(rows).toEqual(["item-row-a1", "item-row-a2", "item-row-b1", "item-row-c1"]);
+
+    // DnD e2e pin (jsdom has no layout for real dnd-kit drags): every row in
+    // both sections exposes the ≡ handle — the only drag surface — which is
+    // touch-none (TouchSensor 150 ms / 5 px) with a mouse distance guard.
+    for (const id of ["a1", "a2", "b1", "c1"]) {
+      const handle = screen.getByTestId(`handle-${id}`);
+      expect(handle).toHaveTextContent("≡");
+      expect(handle.className).toMatch(/touch-none/);
+      expect(handle.className).toMatch(/cursor-grab/);
+    }
+  });
+
+  it("posts the reorder with the section status for both TO_BUY and BOUGHT", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mock.on("POST", "/api/lists/l1/items/reorder", () => json(204));
+    mock.stub();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Harness() {
+      const reorder = useReorderItems("l1");
+      return (
+        <div>
+          <button
+            type="button"
+            onClick={() => reorder.mutate({ status: "TO_BUY", orderedIds: ["i2", "i1"] })}
+          >
+            reorder-to-buy
+          </button>
+          <button
+            type="button"
+            onClick={() => reorder.mutate({ status: "BOUGHT", orderedIds: ["i3", "i4"] })}
+          >
+            reorder-bought
+          </button>
+        </div>
+      );
+    }
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "reorder-to-buy" }));
+    await waitFor(() =>
+      expect(mock.callsTo("POST", "/api/lists/l1/items/reorder")[0]?.body).toEqual({
+        status: "TO_BUY",
+        orderedIds: ["i2", "i1"],
+      }),
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "reorder-bought" }));
+    await waitFor(() =>
+      expect(mock.callsTo("POST", "/api/lists/l1/items/reorder")[1]?.body).toEqual({
+        status: "BOUGHT",
+        orderedIds: ["i3", "i4"],
+      }),
+    );
+  });
+
+  it("groupAwareReorderedIds is wired for both sections (pure mapping spot-check)", () => {
+    const toBuy = [
+      groupedItem("a1", "A1", "TO_BUY", 0, "a"),
+      groupedItem("a2", "A2", "TO_BUY", 1, "a"),
+      groupedItem("b1", "B1", "TO_BUY", 2, "b"),
+    ];
+    expect(groupAwareReorderedIds(toBuy, "a1", "a2")).toEqual(["a2", "a1", "b1"]);
+    const bought = [
+      groupedItem("x1", "X1", "BOUGHT", 0, "x"),
+      groupedItem("y1", "Y1", "BOUGHT", 1, "y"),
+    ];
+    expect(groupAwareReorderedIds(bought, "y1", "x1")).toEqual(["y1", "x1"]);
   });
 });

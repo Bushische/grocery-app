@@ -18,10 +18,11 @@ function splitSections(data: ItemsQueryData): { toBuy: Item[]; bought: Item[] } 
 
 /**
  * Optimistically toggles an item's status inside the `["items", listId]` cache
- * (buy/unbuy). Buying prepends to the top of the BOUGHT section, un-buying
- * appends to the end of TO_BUY (mirroring the server's moveTo); the server
- * response (incl. recomputed daysInList / usageCount) is reconciled on
- * success via invalidation.
+ * (buy/unbuy, T75 group-aware): buying lands at the top of its category run
+ * in BOUGHT, un-buying at the end of its category run in TO_BUY (a missing
+ * run appends as a trailing group) — mirroring the server's moveTo, incl.
+ * sortOrder shifts so the grouped render keeps the optimistic position. The
+ * server response is reconciled on success via invalidation.
  */
 export function applyMove(
   data: ItemsQueryData,
@@ -30,17 +31,47 @@ export function applyMove(
 ): ItemsQueryData {
   const moving = data.items.find((item) => item.id === itemId);
   if (!moving) return data;
-  const moved: Item = { ...moving, status: target };
+  const categoryId = moving.category.id;
   const without = data.items.filter((item) => item.id !== itemId);
-  const targetSection = without.filter((item) => item.status === target);
-  const otherSection = without.filter((item) => item.status !== target);
+  const targetBlock = without
+    .filter((item) => item.status === target)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const otherBlock = without.filter((item) => item.status !== target);
+  let pos: number;
+  if (target === "BOUGHT") {
+    const first = targetBlock.findIndex((item) => item.category.id === categoryId);
+    pos = first === -1 ? targetBlock.length : first;
+  } else {
+    let last = -1;
+    for (const [index, item] of targetBlock.entries()) {
+      if (item.category.id === categoryId) last = index;
+    }
+    pos = last === -1 ? targetBlock.length : last + 1;
+  }
+  let moved: Item;
+  let nextTarget: Item[];
+  if (pos >= targetBlock.length) {
+    const sortOrder =
+      targetBlock.length === 0 ? 0 : Math.max(...targetBlock.map((item) => item.sortOrder)) + 1;
+    moved = { ...moving, status: target, sortOrder };
+    nextTarget = [...targetBlock, moved];
+  } else if (pos === 0) {
+    moved = { ...moving, status: target, sortOrder: 0 };
+    nextTarget = [
+      moved,
+      ...targetBlock.map((item) => ({ ...item, sortOrder: item.sortOrder + 1 })),
+    ];
+  } else {
+    const threshold = targetBlock[pos]!.sortOrder;
+    moved = { ...moving, status: target, sortOrder: threshold };
+    nextTarget = [
+      ...targetBlock.slice(0, pos),
+      moved,
+      ...targetBlock.slice(pos).map((item) => ({ ...item, sortOrder: item.sortOrder + 1 })),
+    ];
+  }
   return {
-    // TO_BUY appends to the end of its section; BOUGHT prepends to the top.
-    // The source section keeps its remaining rows in order (T36: no duplicated row).
-    items:
-      target === "TO_BUY"
-        ? [...targetSection, moved, ...otherSection]
-        : [...otherSection, moved, ...targetSection],
+    items: target === "TO_BUY" ? [...nextTarget, ...otherBlock] : [...otherBlock, ...nextTarget],
   };
 }
 
@@ -73,21 +104,32 @@ export function useMoveItem(listId: string) {
   });
 }
 
-/** `POST /lists/:id/items/reorder` — persists the new manual TO_BUY order. */
+/** Variables accepted by the reorder mutation: the legacy ids array means TO_BUY. */
+export type ReorderVariables = { status: "TO_BUY" | "BOUGHT"; orderedIds: string[] } | string[];
+
+/** `POST /lists/:id/items/reorder` — persists the new manual order of either section (T75). */
 export function useReorderItems(listId: string) {
   const queryClient = useQueryClient();
   const key = itemsQueryKey(listId);
   return useMutation({
-    mutationFn: (orderedIds: string[]) => itemsApi.reorder(listId, "TO_BUY", orderedIds),
-    onMutate: async (orderedIds) => {
+    mutationFn: (variables: ReorderVariables) => {
+      const { status, orderedIds } = Array.isArray(variables)
+        ? { status: "TO_BUY" as const, orderedIds: variables }
+        : variables;
+      return itemsApi.reorder(listId, status, orderedIds);
+    },
+    onMutate: async (variables) => {
+      const { status, orderedIds } = Array.isArray(variables)
+        ? { status: "TO_BUY" as const, orderedIds: variables }
+        : variables;
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<ItemsQueryData>(key);
       if (previous) {
-        queryClient.setQueryData<ItemsQueryData>(key, reorderInCache(previous, orderedIds));
+        queryClient.setQueryData<ItemsQueryData>(key, reorderInCache(previous, orderedIds, status));
       }
       return { previous };
     },
-    onError: (_error, _orderedIds, context) => {
+    onError: (_error, _variables, context) => {
       if (context?.previous) {
         queryClient.setQueryData(key, context.previous);
       }
@@ -98,10 +140,16 @@ export function useReorderItems(listId: string) {
   });
 }
 
-/** Applies a persisted TO_BUY order to the cached items array (BOUGHT untouched). */
-export function reorderInCache(data: ItemsQueryData, orderedIds: string[]): ItemsQueryData {
+/** Applies a persisted section order to the cache (other section untouched). */
+export function reorderInCache(
+  data: ItemsQueryData,
+  orderedIds: string[],
+  status: "TO_BUY" | "BOUGHT" = "TO_BUY",
+): ItemsQueryData {
   const { toBuy, bought } = splitSections(data);
-  const byId = new Map(toBuy.map((item) => [item.id, item]));
+  const section = status === "TO_BUY" ? toBuy : bought;
+  const other = status === "TO_BUY" ? bought : toBuy;
+  const byId = new Map(section.map((item) => [item.id, item]));
   const ordered: Item[] = [];
   for (const id of orderedIds) {
     const item = byId.get(id);
@@ -112,5 +160,8 @@ export function reorderInCache(data: ItemsQueryData, orderedIds: string[]): Item
   }
   // Ids the server has but the client missed keep their relative order at the end.
   const remainder = [...byId.values()];
-  return { items: [...ordered, ...remainder, ...bought] };
+  const nextSection = [...ordered, ...remainder];
+  return {
+    items: status === "TO_BUY" ? [...nextSection, ...other] : [...other, ...nextSection],
+  };
 }

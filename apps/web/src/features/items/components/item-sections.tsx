@@ -10,11 +10,15 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { Item } from "@grocery/shared";
+import { groupAwareReorderedIds, groupSectionItems } from "../lib/grouping";
 import { ItemRow } from "./item-row";
+
+export { groupAwareReorderedIds };
 
 /**
  * Maps a drag (active id → over id) to the new TO_BUY order. Pure, so the
  * drag-end wiring can be unit-tested without jsdom layout (no real drags).
+ * Kept for compatibility (T16); new code uses {@link groupAwareReorderedIds}.
  */
 export function reorderedIdsAfterDrag(
   ids: string[],
@@ -30,19 +34,20 @@ export function reorderedIdsAfterDrag(
 export interface ItemSectionsProps {
   toBuy: Item[];
   bought: Item[];
-  onReorder: (orderedIds: string[]) => void;
+  onReorder: (status: "TO_BUY" | "BOUGHT", orderedIds: string[]) => void;
   onMove: (itemId: string, status: "bought" | "to_buy") => void;
   onOpenDetails: (itemId: string) => void;
 }
 
 /**
- * The main screen's two sections (docs/PROJECT.md → UX): "to buy" on top with
- * drag-and-drop reordering, "bought" below. Dragging is allowed only via the ≡
- * handle: TouchSensor (150 ms delay, 5 px tolerance) + MouseSensor, never a
- * plain pointer drag of the row body — that is reserved for long-press details.
- * Tapping the row body toggles the item's status (T27). The "To buy" header
- * carries the client-derived count of the loaded TO_BUY rows (T39 — the old
- * server-derived counts line was removed); "Bought" has no counter.
+ * The main screen's two sections (T75): each renders grouped by category —
+ * groups ordered by first-item position, items by sortOrder — with
+ * drag-and-drop in both sections via the ≡ handle only (TouchSensor 150 ms
+ * delay / 5 px tolerance + MouseSensor, never a plain row-body drag).
+ * Inside-group drops reorder within the run; cross-group drops move the
+ * dragged item to the top of its group and its whole block above the target's
+ * group (see groupAwareReorderedIds). Tapping the row body toggles status
+ * (T27). The "To buy" header carries the client-derived count (T39).
  */
 export function ItemSections({
   toBuy,
@@ -59,18 +64,19 @@ export function ItemSections({
     useSensor(KeyboardSensor),
   );
 
-  function handleDragEnd(event: DragEndEvent) {
+  function handleDragEnd(status: "TO_BUY" | "BOUGHT", displayed: Item[], event: DragEndEvent) {
     const { active, over } = event;
     if (!over) return;
-    const next = reorderedIdsAfterDrag(
-      toBuy.map((item) => item.id),
-      String(active.id),
-      String(over.id),
-    );
+    const next = groupAwareReorderedIds(displayed, String(active.id), String(over.id));
     if (next) {
-      onReorder(next);
+      onReorder(status, next);
     }
   }
+
+  const toBuyGroups = groupSectionItems(toBuy);
+  const boughtGroups = groupSectionItems(bought);
+  const toBuyOrdered = toBuyGroups.flatMap((group) => group.items);
+  const boughtOrdered = boughtGroups.flatMap((group) => group.items);
 
   return (
     <div className="space-y-6">
@@ -85,23 +91,40 @@ export function ItemSections({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
+            onDragEnd={(event) => handleDragEnd("TO_BUY", toBuyOrdered, event)}
           >
             <SortableContext
-              items={toBuy.map((item) => item.id)}
+              items={toBuyOrdered.map((item) => item.id)}
               strategy={verticalListSortingStrategy}
             >
-              <ul className="mt-2 space-y-2">
-                {toBuy.map((item) => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
-                    sortable
-                    onMove={(status) => onMove(item.id, status)}
-                    onOpenDetails={onOpenDetails}
-                  />
+              <div className="mt-2 space-y-4">
+                {toBuyGroups.map((group) => (
+                  <div key={group.category.id}>
+                    <h3
+                      data-testid={`group-to_buy-${group.category.id}`}
+                      className="flex items-center gap-2 text-xs font-medium text-gray-500"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: group.category.color }}
+                      />
+                      {group.category.title}
+                    </h3>
+                    <ul className="mt-1 space-y-2">
+                      {group.items.map((item) => (
+                        <ItemRow
+                          key={item.id}
+                          item={item}
+                          sortable
+                          onMove={(status) => onMove(item.id, status)}
+                          onOpenDetails={onOpenDetails}
+                        />
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </SortableContext>
           </DndContext>
         )}
@@ -111,17 +134,45 @@ export function ItemSections({
         {bought.length === 0 ? (
           <p className="mt-2 text-sm text-gray-500">Nothing bought yet.</p>
         ) : (
-          <ul className="mt-2 space-y-2">
-            {bought.map((item) => (
-              <ItemRow
-                key={item.id}
-                item={item}
-                sortable={false}
-                onMove={(status) => onMove(item.id, status)}
-                onOpenDetails={onOpenDetails}
-              />
-            ))}
-          </ul>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(event) => handleDragEnd("BOUGHT", boughtOrdered, event)}
+          >
+            <SortableContext
+              items={boughtOrdered.map((item) => item.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="mt-2 space-y-4">
+                {boughtGroups.map((group) => (
+                  <div key={group.category.id}>
+                    <h3
+                      data-testid={`group-bought-${group.category.id}`}
+                      className="flex items-center gap-2 text-xs font-medium text-gray-500"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: group.category.color }}
+                      />
+                      {group.category.title}
+                    </h3>
+                    <ul className="mt-1 space-y-2">
+                      {group.items.map((item) => (
+                        <ItemRow
+                          key={item.id}
+                          item={item}
+                          sortable
+                          onMove={(status) => onMove(item.id, status)}
+                          onOpenDetails={onOpenDetails}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
       </section>
     </div>

@@ -79,6 +79,54 @@ function highestSortOrder(db: Db, listId: string, status: ItemStatus): number {
   return row?.highest ?? -1;
 }
 
+/** Minimal ordered entry for group-aware positioning (T75). */
+type SectionEntry = {
+  id: string;
+  categoryId: string;
+  sortOrder: number;
+  addedAt: Date;
+};
+
+/** One status section ordered by sortOrder then addedAt (docs/API.md → Items). */
+function orderedSectionEntries(db: Db, listId: string, status: ItemStatus): SectionEntry[] {
+  return db
+    .select({
+      id: items.id,
+      categoryId: items.categoryId,
+      sortOrder: items.sortOrder,
+      addedAt: items.addedAt,
+    })
+    .from(items)
+    .where(and(eq(items.listId, listId), eq(items.status, status)))
+    .orderBy(asc(items.sortOrder), asc(items.addedAt))
+    .all();
+}
+
+/** Index just after the last row of the category run (new TO_BUY / un-buy). */
+function endOfRunIndex(entries: SectionEntry[], categoryId: string): number {
+  let last = -1;
+  for (const [index, entry] of entries.entries()) {
+    if (entry.categoryId === categoryId) last = index;
+  }
+  return last === -1 ? entries.length : last + 1;
+}
+
+/** Index of the first row of the category run (newly bought → top of run). */
+function topOfRunIndex(entries: SectionEntry[], categoryId: string): number {
+  const first = entries.findIndex((entry) => entry.categoryId === categoryId);
+  return first === -1 ? entries.length : first;
+}
+
+/** Shifts every follower id one slot down, preserving gaps elsewhere. */
+function shiftFollowers(db: Db, followerIds: string[]): void {
+  for (const id of followerIds) {
+    db.update(items)
+      .set({ sortOrder: sql`${items.sortOrder} + 1` })
+      .where(eq(items.id, id))
+      .run();
+  }
+}
+
 /**
  * The list's default "Other" category — smart-add and plain creates fall back
  * to it (docs/PROJECT.md → Categories, docs/API.md → smart-add step 4).
@@ -200,9 +248,11 @@ export function getItemDetail(db: Db, itemId: string, now: Date = new Date()): I
 }
 
 /**
- * Creates a TO_BUY item appended to the end of the section (sortOrder = max+1).
- * Runs in one transaction together with the (self-healing) default-category
- * fallback, so a re-created "Other" and the new item commit atomically (T37).
+ * Creates a TO_BUY item at the end of its category run (T75): the new row
+ * joins after the last same-category row of the TO_BUY section (a new
+ * category appends at the end); followers shift down in the same transaction
+ * via a section renumber, so groups stay contiguous without touching
+ * category sortOrder. Runs in one transaction with the default-category fallback.
  */
 export function createItem(
   db: Db,
@@ -213,6 +263,19 @@ export function createItem(
   return db.transaction((tx) => {
     const categoryId = request.categoryId ?? defaultCategoryId(tx, listId);
     requireCategoryInList(tx, listId, categoryId);
+    const siblings = orderedSectionEntries(tx, listId, "TO_BUY");
+    const pos = endOfRunIndex(siblings, categoryId);
+    let sortOrder: number;
+    if (pos >= siblings.length) {
+      sortOrder = highestSortOrder(tx, listId, "TO_BUY") + 1;
+    } else {
+      const threshold = siblings[pos]!.sortOrder;
+      shiftFollowers(
+        tx,
+        siblings.slice(pos).map((entry) => entry.id),
+      );
+      sortOrder = threshold;
+    }
     const row = tx
       .insert(items)
       .values({
@@ -222,7 +285,7 @@ export function createItem(
         title: request.title,
         qtyText: request.qtyText ?? null,
         status: "TO_BUY",
-        sortOrder: highestSortOrder(tx, listId, "TO_BUY") + 1,
+        sortOrder,
         addedAt: now,
       })
       .returning()
@@ -231,7 +294,11 @@ export function createItem(
     if (!category) {
       throw new FastifyHttpError(500, "INTERNAL_ERROR", `Category ${categoryId} is missing`);
     }
-    return toItemDto({ item: row, category }, now, currentPriceOf(tx, row.id));
+    const fresh = tx.select().from(items).where(eq(items.id, row.id)).get();
+    if (!fresh) {
+      throw new FastifyHttpError(500, "INTERNAL_ERROR", `Item ${row.id} is missing`);
+    }
+    return toItemDto({ item: fresh, category }, now, currentPriceOf(tx, fresh.id));
   });
 }
 
@@ -351,35 +418,52 @@ function findFuzzyMatch(db: Db, listId: string, text: string): ItemRow | undefin
 }
 
 /**
- * Applies one move direction to a fetched row (docs/API.md → Items): the item
- * is written into `target`; to bought it is prepended to the top of the
- * target section (existing BOUGHT rows shift down one slot, the moved item
- * takes sortOrder 0, keeping sortOrder non-negative per the shared schema),
- * to to_buy it is appended to the end (sortOrder = max+1).
- * to bought: boughtAt = now. to to_buy: addedAt = now, boughtAt = null,
- * usageCount+1, sortOrder = end. Shared by `moveItem` (T9) and smart-add's
- * BOUGHT re-activation.
+ * Applies one move direction to a fetched row (docs/API.md → Items, T75
+ * group-aware): to BOUGHT the item takes the top of its category run in the
+ * bought section, to TO_BUY the end of its category run in the to-buy
+ * section (a missing run appends as a trailing group); followers shift +1
+ * in the same transaction, so groups stay contiguous without touching
+ * category sortOrder. Shared by `moveItem` (T9) and smart-add's re-activation.
  */
 function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
-  if (target === "BOUGHT") {
-    db.update(items)
-      .set({ sortOrder: sql`${items.sortOrder} + 1` })
-      .where(and(eq(items.listId, row.item.listId), eq(items.status, "BOUGHT")))
-      .run();
+  const listId = row.item.listId;
+  const categoryId = row.item.categoryId;
+  const targetSiblings = orderedSectionEntries(db, listId, target).filter(
+    (entry) => entry.id !== row.item.id,
+  );
+  const pos =
+    target === "BOUGHT"
+      ? topOfRunIndex(targetSiblings, categoryId)
+      : endOfRunIndex(targetSiblings, categoryId);
+  let sortOrder: number;
+  if (pos >= targetSiblings.length) {
+    sortOrder =
+      targetSiblings.length === 0
+        ? 0
+        : Math.max(...targetSiblings.map((entry) => entry.sortOrder)) + 1;
+  } else if (pos === 0) {
+    shiftFollowers(
+      db,
+      targetSiblings.map((entry) => entry.id),
+    );
+    sortOrder = 0;
+  } else {
+    const threshold = targetSiblings[pos]!.sortOrder;
+    shiftFollowers(
+      db,
+      targetSiblings.slice(pos).map((entry) => entry.id),
+    );
+    sortOrder = threshold;
   }
   const set: Partial<typeof items.$inferInsert> =
     target === "BOUGHT"
-      ? {
-          status: "BOUGHT",
-          boughtAt: now,
-          sortOrder: 0,
-        }
+      ? { status: "BOUGHT", boughtAt: now, sortOrder }
       : {
           status: "TO_BUY",
           addedAt: now,
           boughtAt: null,
           usageCount: row.item.usageCount + 1,
-          sortOrder: highestSortOrder(db, row.item.listId, "TO_BUY") + 1,
+          sortOrder,
         };
   const updated = db.update(items).set(set).where(eq(items.id, row.item.id)).returning().get();
   if (!updated) {
@@ -389,9 +473,9 @@ function moveTo(db: Db, row: ItemRow, target: ItemStatus, now: Date): Item {
 }
 
 /**
- * Re-activates a matched BOUGHT item (docs/API.md → Items): back to TO_BUY
- * with addedAt = now, boughtAt = null, usageCount+1, appended to the end of
- * the TO_BUY section. A matched TO_BUY item is returned unchanged.
+ * Re-activates a matched BOUGHT item (docs/API.md → Items, T75): back to
+ * TO_BUY with addedAt = now, boughtAt = null, usageCount+1, at the end of its
+ * category run. A matched TO_BUY item is returned unchanged.
  */
 function activateIfBought(db: Db, row: ItemRow, now: Date): Item {
   if (row.item.status !== "BOUGHT") {
@@ -401,11 +485,10 @@ function activateIfBought(db: Db, row: ItemRow, now: Date): Item {
 }
 
 /**
- * `POST /items/:id/move` (docs/API.md → Items): toggles the item's status
- * between TO_BUY and BOUGHT with the direction's timestamps/counters; to
- * BOUGHT prepends to the top of the bought section, to TO_BUY appends to the
- * end of the to-buy section. Same-status moves apply unconditionally
- * (re-buy moves the item to the top).
+ * `POST /items/:id/move` (docs/API.md → Items, T75 group-aware): toggles the
+ * item's status with the direction's timestamps/counters; to BOUGHT at the
+ * top of its category run, to TO_BUY at the end of its category run.
+ * Same-status moves apply unconditionally (re-buy moves to the top of run).
  */
 export function moveItem(db: Db, itemId: string, target: ItemStatus, now: Date = new Date()): Item {
   return db.transaction((tx) => {
@@ -499,6 +582,19 @@ export function smartAddItem(
     }
 
     const categoryId = defaultCategoryId(tx, listId);
+    const siblings = orderedSectionEntries(tx, listId, "TO_BUY");
+    const pos = endOfRunIndex(siblings, categoryId);
+    let sortOrder: number;
+    if (pos >= siblings.length) {
+      sortOrder = highestSortOrder(tx, listId, "TO_BUY") + 1;
+    } else {
+      const threshold = siblings[pos]!.sortOrder;
+      shiftFollowers(
+        tx,
+        siblings.slice(pos).map((entry) => entry.id),
+      );
+      sortOrder = threshold;
+    }
     const created = tx
       .insert(items)
       .values({
@@ -508,7 +604,7 @@ export function smartAddItem(
         title: text,
         qtyText: null,
         status: "TO_BUY",
-        sortOrder: highestSortOrder(tx, listId, "TO_BUY") + 1,
+        sortOrder,
         addedAt: now,
       })
       .returning()
@@ -517,10 +613,14 @@ export function smartAddItem(
     if (!category) {
       throw new FastifyHttpError(500, "INTERNAL_ERROR", `Category ${categoryId} is missing`);
     }
+    const fresh = tx.select().from(items).where(eq(items.id, created.id)).get();
+    if (!fresh) {
+      throw new FastifyHttpError(500, "INTERNAL_ERROR", `Item ${created.id} is missing`);
+    }
     return {
       created: true,
       matchedBy: "created" as const,
-      item: toItemDto({ item: created, category }, now, currentPriceOf(tx, created.id)),
+      item: toItemDto({ item: fresh, category }, now, currentPriceOf(tx, fresh.id)),
     };
   });
 }

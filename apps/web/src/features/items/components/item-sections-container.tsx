@@ -25,7 +25,7 @@ export function ItemSectionsContainer({ listId, toBuy, bought }: ItemSectionsCon
     <ItemSections
       toBuy={toBuy}
       bought={bought}
-      onReorder={(orderedIds) => reorder.mutate(orderedIds)}
+      onReorder={(status, orderedIds) => reorder.mutate({ status, orderedIds })}
       onMove={(itemId, status) => move.mutate({ itemId, status })}
       onOpenDetails={(itemId) => void navigate(`/lists/${listId}/items/${itemId}`)}
     />

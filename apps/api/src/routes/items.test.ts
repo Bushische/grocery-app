@@ -1534,3 +1534,95 @@ describe("self-healing default Other category (T37)", () => {
     expect(otherRowsOf(listId)).toHaveLength(1);
   });
 });
+
+describe("category-grouped inserts (docs/TASKS.md → T75 rule 3)", () => {
+  async function dairyOf(listId: string): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/categories`,
+      headers: bearer(ownerToken),
+      payload: { title: "Dairy", color: "#3B82F6" },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  }
+
+  async function titles(listId: string, status: "to_buy" | "bought"): Promise<string[]> {
+    const res = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/items?status=${status}`,
+      headers: bearer(ownerToken),
+    });
+    expect(res.statusCode).toBe(200);
+    return (res.json().items as Array<{ title: string }>).map((item) => item.title);
+  }
+
+  it("creates a TO_BUY item at the end of its category run, shifting followers", async () => {
+    const listId = await createScratchList("Grouped Create");
+    const other = otherCategoryOf(listId).id;
+    const dairy = await dairyOf(listId);
+    const d1 = seedItem(listId, dairy, { title: "D1", status: "TO_BUY", sortOrder: 0 });
+    const d2 = seedItem(listId, dairy, { title: "D2", status: "TO_BUY", sortOrder: 1 });
+    const o1 = seedItem(listId, other, { title: "O1", status: "TO_BUY", sortOrder: 2 });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/lists/${listId}/items`,
+      headers: bearer(editorToken),
+      payload: { title: "D3", categoryId: dairy },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().sortOrder).toBe(2);
+    expect(itemById(o1.id)?.sortOrder).toBe(3);
+    expect(itemById(d1.id)?.sortOrder).toBe(0);
+    expect(itemById(d2.id)?.sortOrder).toBe(1);
+    expect(await titles(listId, "to_buy")).toEqual(["D1", "D2", "D3", "O1"]);
+  });
+
+  it("moves TO_BUY → BOUGHT at the top of its category run, shifting followers", async () => {
+    const listId = await createScratchList("Grouped Buy");
+    const other = otherCategoryOf(listId).id;
+    const dairy = await dairyOf(listId);
+    const d1 = seedItem(listId, dairy, { title: "D1", status: "BOUGHT", sortOrder: 0 });
+    const o1 = seedItem(listId, other, { title: "O1", status: "BOUGHT", sortOrder: 1 });
+    const moving = seedItem(listId, dairy, { title: "D-new", status: "TO_BUY", sortOrder: 0 });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/items/${moving.id}/move`,
+      headers: bearer(editorToken),
+      payload: { status: "bought" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().sortOrder).toBe(0);
+    expect(itemById(d1.id)?.sortOrder).toBe(1);
+    expect(itemById(o1.id)?.sortOrder).toBe(2);
+    expect(await titles(listId, "bought")).toEqual(["D-new", "D1", "O1"]);
+  });
+
+  it("moves BOUGHT → TO_BUY at the end of its category run, shifting followers", async () => {
+    const listId = await createScratchList("Grouped Unbuy");
+    const other = otherCategoryOf(listId).id;
+    const dairy = await dairyOf(listId);
+    const d1 = seedItem(listId, dairy, { title: "D1", status: "TO_BUY", sortOrder: 0 });
+    const o1 = seedItem(listId, other, { title: "O1", status: "TO_BUY", sortOrder: 1 });
+    const returning = seedItem(listId, dairy, {
+      title: "D-back",
+      status: "BOUGHT",
+      sortOrder: 0,
+      boughtAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/items/${returning.id}/move`,
+      headers: bearer(editorToken),
+      payload: { status: "to_buy" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().sortOrder).toBe(1);
+    expect(itemById(o1.id)?.sortOrder).toBe(2);
+    expect(itemById(d1.id)?.sortOrder).toBe(0);
+    expect(await titles(listId, "to_buy")).toEqual(["D1", "D-back", "O1"]);
+  });
+});
