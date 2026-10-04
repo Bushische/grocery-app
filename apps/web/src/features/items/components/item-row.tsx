@@ -5,7 +5,8 @@ import { useRef, useState } from "react";
 import { ApiClientError } from "../../../lib/api-client";
 import { useDeleteItem } from "../hooks/use-item-detail-mutations";
 import { formatAgeBadge } from "../lib/age-badge";
-import { type SwipeReveal, swipeRevealForDelta } from "../lib/swipe-action";
+import { type SwipeReveal, swipeCommitForDelta, swipeRevealForDelta } from "../lib/swipe-action";
+import { ItemEditSheet } from "./item-edit-sheet";
 
 export interface ItemRowProps {
   item: Item;
@@ -31,14 +32,18 @@ export interface ItemRowProps {
  *
  * T76: swipe-to-action replaces the long-press (which fought scrolling/DnD).
  * A touch swipe on the row body reveals a real focusable button: swipe left →
- * Edit (opens details, same destination as long-press/right-click), swipe
- * right → Delete with the details-page two-step (arm `Delete X` → confirm
- * `Confirm delete X`; the 403 banner reuses the details-page wording and the
- * optimistic row removal rolls back via useDeleteItem). The pure
- * `swipeRevealForDelta` helper decides intent: horizontal wins past 40 px,
- * vertical scroll never reveals. A press that moved > 10 px (or any revealed
- * row) never toggles on its trailing click — tapping a revealed row dismisses
- * it instead. Mouse swipes never reveal; desktop right-click still opens
+ * Edit, swipe right → Delete. T84 rework: the row body is `touch-action:
+ * pan-y` (without it Android Chrome never delivers horizontal moves),
+ * reveal (~40 px) and commit (~2/3 row width) are separate lines — releasing
+ * a revealed row past commit runs the action, shorter swipes snap back and
+ * leave tappable buttons. Left commit (or tapping Edit) opens an edit
+ * bottom-sheet reusing `ItemEditForm`; right commit deletes outright (the far
+ * slide is the confirmation — the button reads `Release to delete` past the
+ * line — and tapping Delete after a swipe deletes too). The 403 banner reuses
+ * the details-page wording and the optimistic row removal rolls back via
+ * useDeleteItem. A press that moved > 10 px (or any revealed row) never
+ * toggles on its trailing click — tapping a revealed row dismisses it
+ * instead. Mouse swipes never reveal; desktop right-click still opens
  * details. Drags start only from the ≡ handle (TouchSensor 150 ms / 5 px).
  */
 export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemRowProps) {
@@ -51,10 +56,17 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
     });
 
   const [revealed, setRevealed] = useState<SwipeReveal>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [farDelete, setFarDelete] = useState(false);
   const startPoint = useRef<{ x: number; y: number } | null>(null);
+  const lastDelta = useRef<{ dx: number } | null>(null);
+  const bodyRef = useRef<HTMLButtonElement | null>(null);
   const movedSinceDown = useRef(false);
   const removeItem = useDeleteItem(listId);
+
+  function rowWidth(): number {
+    return bodyRef.current?.getBoundingClientRect().width ?? 0;
+  }
 
   function handlePointerDown(event: React.PointerEvent) {
     movedSinceDown.current = false;
@@ -63,6 +75,7 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
       return;
     }
     startPoint.current = { x: event.clientX, y: event.clientY };
+    lastDelta.current = null;
   }
 
   function handlePointerMove(event: React.PointerEvent) {
@@ -78,32 +91,47 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
     // NOTE: jsdom pointer events may carry no pointerType — only mouse is
     // excluded so touch/pen (and tests) still reveal.
     if (event.pointerType === "mouse") return;
+    lastDelta.current = { dx };
     const next = swipeRevealForDelta(dx, dy);
     if (next !== null) {
       setRevealed(next);
-      if (next !== "delete") setConfirmingDelete(false);
+      setFarDelete(next === "delete" && swipeCommitForDelta(dx, rowWidth()));
+    }
+  }
+
+  function handlePointerUp() {
+    const delta = lastDelta.current;
+    startPoint.current = null;
+    lastDelta.current = null;
+    if (revealed === null || delta === null) return;
+    if (!swipeCommitForDelta(delta.dx, rowWidth())) return;
+    if (revealed === "edit") {
+      setSheetOpen(true);
+    } else {
+      doDelete();
     }
   }
 
   function clearStart() {
     startPoint.current = null;
+    lastDelta.current = null;
   }
 
   function handleTap() {
     if (revealed !== null) {
       setRevealed(null);
-      setConfirmingDelete(false);
+      setFarDelete(false);
       return;
     }
     if (movedSinceDown.current) return;
     onMove(item.status === "TO_BUY" ? "bought" : "to_buy");
   }
 
-  function handleDeleteConfirm() {
+  function doDelete() {
     removeItem.mutate(item.id, {
       onSuccess: () => {
         setRevealed(null);
-        setConfirmingDelete(false);
+        setFarDelete(false);
       },
     });
   }
@@ -127,50 +155,25 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
       data-testid={`item-row-${item.id}`}
     >
       {revealed === "delete" ? (
-        <div className="flex shrink-0 items-center gap-1 bg-red-50 px-1">
-          {confirmingDelete ? (
-            <>
-              <button
-                type="button"
-                disabled={removeItem.isPending}
-                onClick={handleDeleteConfirm}
-                aria-label={`Confirm delete ${item.title}`}
-                data-testid={`confirm-delete-${item.id}`}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {removeItem.isPending ? "Deleting…" : "Confirm"}
-              </button>
-              <button
-                type="button"
-                disabled={removeItem.isPending}
-                onClick={() => {
-                  setConfirmingDelete(false);
-                  setRevealed(null);
-                }}
-                aria-label={`Cancel delete ${item.title}`}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              aria-label={`Delete ${item.title}`}
-              data-testid={`delete-${item.id}`}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-red-600 hover:bg-red-100"
-            >
-              Delete
-            </button>
-          )}
+        <div className="flex shrink-0 items-center bg-red-50 px-1">
+          <button
+            type="button"
+            disabled={removeItem.isPending}
+            onClick={doDelete}
+            aria-label={`Delete ${item.title}`}
+            data-testid={`delete-${item.id}`}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+          >
+            {removeItem.isPending ? "Deleting…" : farDelete ? "Release to delete" : "Delete"}
+          </button>
         </div>
       ) : null}
       <button
         type="button"
+        ref={bodyRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={clearStart}
+        onPointerUp={handlePointerUp}
         onPointerCancel={clearStart}
         onPointerLeave={clearStart}
         onClick={handleTap}
@@ -184,13 +187,13 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
             : `Move ${item.title} back to to buy`
         }
         data-testid={`row-body-${item.id}`}
-        className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-stretch text-left"
+        className="flex min-h-11 min-w-0 flex-1 cursor-pointer touch-pan-y items-stretch text-left"
       >
         <span
           aria-hidden="true"
           className={
             bought
-              ? "w-1.5 shrink-0 self-stretch opacity-50 grayscale"
+              ? "w-1.5 shrink-0 self-stretch opacity-50 brightness-75 grayscale"
               : "w-1.5 shrink-0 self-stretch"
           }
           style={{ backgroundColor: item.category.color }}
@@ -245,7 +248,7 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
       {revealed === "edit" ? (
         <button
           type="button"
-          onClick={() => onOpenDetails(item.id)}
+          onClick={() => setSheetOpen(true)}
           aria-label={`Edit ${item.title}`}
           data-testid={`edit-${item.id}`}
           className="flex min-h-11 min-w-11 shrink-0 items-center justify-center bg-blue-50 px-3 text-sm font-medium text-blue-700 hover:bg-blue-100"
@@ -265,6 +268,14 @@ export function ItemRow({ item, listId, sortable, onMove, onOpenDetails }: ItemR
         >
           ≡
         </button>
+      ) : null}
+      {sheetOpen ? (
+        <ItemEditSheet
+          item={item}
+          listId={listId}
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+        />
       ) : null}
     </li>
   );

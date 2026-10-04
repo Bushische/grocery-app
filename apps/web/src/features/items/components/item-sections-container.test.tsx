@@ -146,7 +146,7 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     const milkBadge = screen.getByLabelText(/Milk: added \d+d ago/);
     expect(milkBadge).toHaveTextContent(/^\d+d$/);
     expect(screen.getByTestId("handle-i1")).toBeInTheDocument();
-    expect(screen.getByTestId("handle-i3")).toBeInTheDocument();
+    expect(screen.queryByTestId("handle-i3")).not.toBeInTheDocument();
   });
 
   it("toggles TO_BUY → BOUGHT when the row body is tapped (T27 DoD)", async () => {
@@ -612,14 +612,17 @@ describe("ItemSections grouped lists (T75)", () => {
     };
   }
 
-  it("renders both sections grouped by category with handles on every row", () => {
+  it("groups TO_BUY by category but keeps BOUGHT flat with handles only on to-buy (T83)", () => {
     createApiFetchMock().stub();
     const toBuy = [
       groupedItem("b1", "B1", "TO_BUY", 2, "b"),
       groupedItem("a1", "A1", "TO_BUY", 0, "a"),
       groupedItem("a2", "A2", "TO_BUY", 1, "a"),
     ];
-    const bought = [groupedItem("c1", "C1", "BOUGHT", 0, "c")];
+    const bought = [
+      groupedItem("c2", "C2", "BOUGHT", 1, "c"),
+      groupedItem("c1", "C1", "BOUGHT", 0, "c"),
+    ];
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
@@ -639,19 +642,33 @@ describe("ItemSections grouped lists (T75)", () => {
     // Groups ordered by first-item position; interleaved input coalesces.
     expect(screen.getByTestId("group-to_buy-a")).toBeInTheDocument();
     expect(screen.getByTestId("group-to_buy-b")).toBeInTheDocument();
-    expect(screen.getByTestId("group-bought-c")).toBeInTheDocument();
+    // BOUGHT: flat, in given (recency) order, no groups, no handles.
+    expect(screen.queryByTestId("group-bought-c")).not.toBeInTheDocument();
     const rows = screen.getAllByTestId(/^item-row-/).map((row) => row.dataset.testid);
-    expect(rows).toEqual(["item-row-a1", "item-row-a2", "item-row-b1", "item-row-c1"]);
+    expect(rows).toEqual([
+      "item-row-a1",
+      "item-row-a2",
+      "item-row-b1",
+      "item-row-c2",
+      "item-row-c1",
+    ]);
 
-    // DnD e2e pin (jsdom has no layout for real dnd-kit drags): every row in
-    // both sections exposes the ≡ handle — the only drag surface — which is
-    // touch-none (TouchSensor 150 ms / 5 px) with a mouse distance guard.
-    for (const id of ["a1", "a2", "b1", "c1"]) {
+    // DnD e2e pin (jsdom has no layout for real dnd-kit drags): only TO_BUY
+    // rows expose the ≡ handle — the only drag surface — which is touch-none
+    // (TouchSensor 150 ms / 5 px) with a mouse distance guard.
+    for (const id of ["a1", "a2", "b1"]) {
       const handle = screen.getByTestId(`handle-${id}`);
       expect(handle).toHaveTextContent("≡");
       expect(handle.className).toMatch(/touch-none/);
       expect(handle.className).toMatch(/cursor-grab/);
     }
+    for (const id of ["c1", "c2"]) {
+      expect(screen.queryByTestId(`handle-${id}`)).not.toBeInTheDocument();
+    }
+
+    // Receipt tail: torn divider + grey wash on the bought section.
+    expect(screen.getByTestId("receipt-separator")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Bought" }).className).toMatch(/bg-gray-100/);
   });
 
   it("posts the reorder with the section status for both TO_BUY and BOUGHT", async () => {

@@ -2,6 +2,7 @@
 import type { Item } from "@grocery/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAuthStore } from "../../../stores/auth-store";
@@ -10,6 +11,10 @@ import "../../../test/setup";
 import { ItemSectionsContainer } from "./item-sections-container";
 
 const CATEGORY = { id: "c1", title: "Other", color: "#6B7280" } as const;
+const CATEGORIES = [
+  { id: "c1", title: "Other", color: "#6B7280", sortOrder: 0, itemCount: 1 },
+  { id: "c2", title: "Dairy", color: "#3B82F6", sortOrder: 1, itemCount: 0 },
+];
 const ADDED_AT = "2026-09-24T08:00:00.000Z";
 
 function item(id: string, title: string): Item {
@@ -72,33 +77,78 @@ function rowBody(): HTMLElement {
   return screen.getByTestId("row-body-i1");
 }
 
-function swipeLeft() {
+// Reveal-only swipes (jsdom width falls back to 360 px: reveal ≥ 40,
+// commit ≥ 240). Realistic deltas, not full-width drags.
+function swipeLeftReveal() {
   const body = rowBody();
-  dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 100 });
+  dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 200, clientY: 100 });
   dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 40, clientY: 102 });
   dispatchPointer(body, "pointerup", { pointerType: "touch", clientX: 40, clientY: 102 });
 }
 
-function swipeRight() {
-  const body = rowBody();
-  dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 100 });
-  dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 170, clientY: 102 });
-  dispatchPointer(body, "pointerup", { pointerType: "touch", clientX: 170, clientY: 102 });
+function swipeLeftFar() {
+  return swipeLeftFarDown().then(() => {
+    dispatchPointer(rowBody(), "pointerup", { pointerType: "touch", clientX: 20, clientY: 102 });
+  });
 }
 
-describe("ItemRow swipe-to-action (T76)", () => {
+async function swipeLeftFarDown() {
+  const body = rowBody();
+  dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 300, clientY: 100 });
+  dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 20, clientY: 102 });
+  // Flush: the release handler reads post-render state, like the separate
+  // browser task between a real move and pointerup.
+  await screen.findByTestId("edit-i1");
+}
+
+function swipeRightReveal() {
+  const body = rowBody();
+  dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 100 });
+  dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 260, clientY: 102 });
+  dispatchPointer(body, "pointerup", { pointerType: "touch", clientX: 260, clientY: 102 });
+}
+
+function swipeRightFar() {
+  return swipeRightFarDown().then(() => {
+    dispatchPointer(rowBody(), "pointerup", { pointerType: "touch", clientX: 360, clientY: 102 });
+  });
+}
+
+async function swipeRightFarDown() {
+  const body = rowBody();
+  dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 100 });
+  dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 360, clientY: 102 });
+  // Flush: the release handler reads post-render state, like the separate
+  // browser task between a real move and pointerup.
+  await screen.findByTestId("delete-i1");
+}
+
+function mockCategories(mock: ReturnType<typeof createApiFetchMock>) {
+  mock.on("GET", "/api/lists/l1/categories", () => json(200, CATEGORIES));
+}
+
+describe("ItemRow swipe-to-action (T76, reworked T84)", () => {
   afterEach(() => {
     useAuthStore.setState({ accessToken: null, user: null });
   });
 
-  it("left-swipe reveals Edit which opens details (touch only)", async () => {
+  it("row body is touch-pan-y so Android delivers horizontal moves", () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    createApiFetchMock().stub();
+    renderContainer();
+
+    expect(rowBody().className).toMatch(/touch-pan-y/);
+  });
+
+  it("left-swipe reveals Edit; tapping it opens the edit sheet, not details", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
+    mockCategories(mock);
     mock.stub();
     renderContainer();
 
     expect(screen.queryByTestId("edit-i1")).not.toBeInTheDocument();
-    swipeLeft();
+    swipeLeftReveal();
 
     const edit = await screen.findByTestId("edit-i1");
     expect(edit).toHaveAttribute("aria-label", "Edit Milk");
@@ -106,28 +156,70 @@ describe("ItemRow swipe-to-action (T76)", () => {
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
 
     fireEvent.click(edit);
-    expect(await screen.findByTestId("details-page")).toHaveTextContent("/lists/l1/items/i1");
+    expect(await screen.findByTestId("edit-sheet-i1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveDisplayValue("Milk");
+    expect(screen.queryByTestId("details-page")).not.toBeInTheDocument();
   });
 
-  it("right-swipe reveals Delete: arm then confirm issues DELETE", async () => {
+  it("far-left release opens the edit sheet directly", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mockCategories(mock);
+    mock.stub();
+    renderContainer();
+
+    await swipeLeftFar();
+
+    expect(await screen.findByTestId("edit-sheet-i1")).toBeInTheDocument();
+  });
+
+  it("edit sheet saves the title (PATCH) and closes", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mockCategories(mock);
+    mock.on("PATCH", "/api/items/i1", () => json(200, { ...item("i1", "Oat milk") }));
+    mock.stub();
+    renderContainer();
+    const user = userEvent.setup();
+
+    swipeLeftReveal();
+    fireEvent.click(await screen.findByTestId("edit-i1"));
+    const title = await screen.findByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Oat milk");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(mock.callsTo("PATCH", "/api/items/i1")).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId("edit-sheet-i1")).not.toBeInTheDocument());
+  });
+
+  it("right-swipe reveals Delete; tapping it deletes (second gesture confirms)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.on("DELETE", "/api/items/i1", () => json(204));
     mock.stub();
     renderContainer();
 
-    swipeRight();
+    swipeRightReveal();
 
-    const arm = await screen.findByTestId("delete-i1");
-    expect(arm).toHaveAttribute("aria-label", "Delete Milk");
-    expect(arm.className).toMatch(/min-h-11/);
-
-    fireEvent.click(arm);
-    const confirm = await screen.findByTestId("confirm-delete-i1");
-    expect(confirm).toHaveAttribute("aria-label", "Confirm delete Milk");
+    const del = await screen.findByTestId("delete-i1");
+    expect(del).toHaveAttribute("aria-label", "Delete Milk");
+    expect(del.className).toMatch(/min-h-11/);
     expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(0);
 
-    fireEvent.click(confirm);
+    fireEvent.click(del);
+    await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
+  });
+
+  it("far-right release deletes outright (the slide is the confirmation)", async () => {
+    useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
+    const mock = createApiFetchMock();
+    mock.on("DELETE", "/api/items/i1", () => json(204));
+    mock.stub();
+    renderContainer();
+
+    await swipeRightFar();
+
     await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
   });
 
@@ -152,7 +244,7 @@ describe("ItemRow swipe-to-action (T76)", () => {
     mock.stub();
     renderContainer();
 
-    swipeLeft();
+    swipeLeftReveal();
     expect(await screen.findByTestId("edit-i1")).toBeInTheDocument();
 
     // Trailing tap: the earlier swipe moved > 10 px, plus the row is revealed —
@@ -180,7 +272,7 @@ describe("ItemRow swipe-to-action (T76)", () => {
     expect(await screen.findByTestId("details-page")).toHaveTextContent("/lists/l1/items/i1");
   });
 
-  it("VIEWER delete degrades via the 403 path (banner, no navigation)", async () => {
+  it("VIEWER delete degrades via the 403 path (banner, row stays)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.on("DELETE", "/api/items/i1", () =>
@@ -189,9 +281,7 @@ describe("ItemRow swipe-to-action (T76)", () => {
     mock.stub();
     renderContainer();
 
-    swipeRight();
-    fireEvent.click(await screen.findByTestId("delete-i1"));
-    fireEvent.click(await screen.findByTestId("confirm-delete-i1"));
+    await swipeRightFar();
 
     await waitFor(() => expect(mock.callsTo("DELETE", "/api/items/i1")).toHaveLength(1));
     expect(await screen.findByRole("alert")).toHaveTextContent(
