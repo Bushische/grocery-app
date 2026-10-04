@@ -204,39 +204,37 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 
-  it("navigates to the details page on a 500 ms long-press of the row body (DoD) without toggling", async () => {
+  it("no longer opens details on a 500 ms hold (T76: long-press replaced by swipe)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.stub();
     renderContainer();
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
-    fireEvent.pointerDown(rowBody("i1"), {
+    dispatchPointer(rowBody("i1"), "pointerdown", {
       pointerType: "touch",
       clientX: 10,
       clientY: 10,
     });
     await vi.advanceTimersByTimeAsync(500);
 
-    // T41: the canonical details URL carries the owning list.
-    expect(await screen.findByTestId("details-page")).toHaveTextContent(
-      "/lists/l1/items/i1 (list l1)",
-    );
+    expect(screen.queryByTestId("details-page")).not.toBeInTheDocument();
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
 
-  it("does not open details when the touch moves (scroll protection)", async () => {
+  it("does not reveal actions on vertical scroll (T76: vertical never reveals)", async () => {
     useAuthStore.setState({ accessToken: "t", user: { id: "u1", email: "a@b.co", role: "user" } });
     const mock = createApiFetchMock();
     mock.stub();
     renderContainer();
-    vi.useFakeTimers({ shouldAdvanceTime: true });
 
     const body = rowBody("i1");
-    fireEvent.pointerDown(body, { pointerType: "touch", clientX: 10, clientY: 10 });
-    fireEvent.pointerMove(body, { pointerType: "touch", clientX: 40, clientY: 50 });
-    await vi.advanceTimersByTime(600);
+    dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 100, clientY: 100 });
+    dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 100, clientY: 180 });
+    dispatchPointer(body, "pointerup", { pointerType: "touch", clientX: 100, clientY: 180 });
 
+    expect(screen.queryByTestId("edit-i1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("delete-i1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("details-page")).not.toBeInTheDocument();
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
   });
@@ -250,9 +248,9 @@ describe("ItemSectionsContainer (docs/TASKS.md → T16 main screen, T27 row-tap 
     // A scroll gesture: some browsers still emit a trailing click after the
     // pointerup — the row must suppress it (gesture disambiguation, T27 DoD).
     const body = rowBody("i1");
-    fireEvent.pointerDown(body, { pointerType: "touch", clientX: 10, clientY: 10 });
-    fireEvent.pointerMove(body, { pointerType: "touch", clientX: 10, clientY: 60 });
-    fireEvent.pointerUp(body, { pointerType: "touch", clientX: 10, clientY: 60 });
+    dispatchPointer(body, "pointerdown", { pointerType: "touch", clientX: 10, clientY: 10 });
+    dispatchPointer(body, "pointermove", { pointerType: "touch", clientX: 10, clientY: 60 });
+    dispatchPointer(body, "pointerup", { pointerType: "touch", clientX: 10, clientY: 60 });
     fireEvent.click(body);
 
     expect(mock.callsTo("POST", "/api/items/i1/move")).toHaveLength(0);
@@ -398,9 +396,24 @@ describe("ItemRow bought styling (docs/TASKS.md → T36)", () => {
   });
 });
 
-/** The row body: the tappable/long-pressable surface (a <button> since T27). */
+/** The row body: the tappable/swipeable surface (a <button> since T27). */
 function rowBody(id: string): HTMLElement {
   return screen.getByTestId(`row-body-${id}`);
+}
+
+/** jsdom's fireEvent.pointer* drops gesture props — dispatch real Events instead. */
+function dispatchPointer(
+  target: HTMLElement,
+  type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+  init: { pointerType?: string; clientX?: number; clientY?: number } = {},
+) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.assign(event, {
+    pointerType: init.pointerType ?? "touch",
+    clientX: init.clientX ?? 0,
+    clientY: init.clientY ?? 0,
+  });
+  target.dispatchEvent(event);
 }
 
 describe("To buy section header count (docs/TASKS.md → T39, client-derived)", () => {
@@ -612,6 +625,7 @@ describe("ItemSections grouped lists (T75)", () => {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <ItemSections
+            listId="l1"
             toBuy={toBuy}
             bought={bought}
             onReorder={() => {}}

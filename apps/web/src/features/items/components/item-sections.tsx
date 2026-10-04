@@ -32,6 +32,7 @@ export function reorderedIdsAfterDrag(
 }
 
 export interface ItemSectionsProps {
+  listId: string;
   toBuy: Item[];
   bought: Item[];
   onReorder: (status: "TO_BUY" | "BOUGHT", orderedIds: string[]) => void;
@@ -50,6 +51,7 @@ export interface ItemSectionsProps {
  * (T27). The "To buy" header carries the client-derived count (T39).
  */
 export function ItemSections({
+  listId,
   toBuy,
   bought,
   onReorder,
@@ -116,6 +118,7 @@ export function ItemSections({
                         <ItemRow
                           key={item.id}
                           item={item}
+                          listId={listId}
                           sortable
                           onMove={(status) => onMove(item.id, status)}
                           onOpenDetails={onOpenDetails}
@@ -162,6 +165,7 @@ export function ItemSections({
                         <ItemRow
                           key={item.id}
                           item={item}
+                          listId={listId}
                           sortable
                           onMove={(status) => onMove(item.id, status)}
                           onOpenDetails={onOpenDetails}

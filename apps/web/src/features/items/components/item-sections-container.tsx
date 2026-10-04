@@ -12,8 +12,8 @@ export interface ItemSectionsContainerProps {
 /**
  * Wires the main screen's item sections to the move/reorder mutations with
  * optimistic updates (docs/CONVENTIONS.md → Frontend), toggles status on a
- * whole-row tap (T27), and navigates to the (T18) details page on long-press /
- * right-click. T41: details open at the canonical `/lists/:listId/items/:id`
+ * whole-row tap (T27), and navigates to the (T18) details page on swipe-left
+ * Edit / right-click. T41: details open at the canonical `/lists/:listId/items/:id`
  * — the owning list rides in the URL, never in navigation state.
  */
 export function ItemSectionsContainer({ listId, toBuy, bought }: ItemSectionsContainerProps) {
@@ -23,6 +23,7 @@ export function ItemSectionsContainer({ listId, toBuy, bought }: ItemSectionsCon
 
   return (
     <ItemSections
+      listId={listId}
       toBuy={toBuy}
       bought={bought}
       onReorder={(status, orderedIds) => reorder.mutate({ status, orderedIds })}
