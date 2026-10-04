@@ -31,7 +31,7 @@ interface AppMenuProps {
  * overlay menu (drawer over the content) holding everything the old stacked
  * header and the list-controls row used to — account (email + sign out), list
  * management (switcher, create, OWNER-only rename + delete, Categories,
- * OWNER-only Members, per-list roles as before) and the admin tools ("Users
+ * Members (owner editor, member read-only + leave), per-list roles as before)
  * management" → the T32 page, admins only). Closes on selection, Escape, and
  * backdrop tap; rows are ≥ 40 px touch targets. T41: switching lists is a
  * navigation to `/lists/:listId` — the URL owns the selection.
@@ -177,6 +177,18 @@ export function AppMenu({ selectedList }: AppMenuProps) {
                 >
                   Categories
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    close();
+                    void navigate(`/lists/${selectedList.id}/members`, {
+                      state: { role: selectedList.role } satisfies MembersNavigationState,
+                    });
+                  }}
+                  className={rowBaseClass}
+                >
+                  Members
+                </button>
                 {selectedList.role === "OWNER" ? (
                   <>
                     {/* Rename (docs/TASKS.md → T40): OWNER-only, PATCH /lists/:id.
@@ -206,18 +218,6 @@ export function AppMenu({ selectedList }: AppMenuProps) {
                         />
                       </div>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        close();
-                        void navigate(`/lists/${selectedList.id}/members`, {
-                          state: { role: selectedList.role } satisfies MembersNavigationState,
-                        });
-                      }}
-                      className={rowBaseClass}
-                    >
-                      Members
-                    </button>
                     <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
                       <DeleteListButton
                         key={selectedList.id}

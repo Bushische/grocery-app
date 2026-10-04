@@ -9,6 +9,7 @@ import {
 } from "@grocery/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { FastifyHttpError } from "../errors";
 import { requireAuth } from "../plugins/auth";
 import { requireListRole } from "../plugins/list-auth";
 import * as listService from "../services/listService";
@@ -81,13 +82,17 @@ export async function listRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.delete(
-    "/lists/:id/members/:userId",
-    { preHandler: [requireAuth, requireListRole("OWNER")] },
-    async (request, reply) => {
-      const { id, userId } = memberParamsSchema.parse(request.params);
-      listService.removeListMember(db, id, userId);
-      return reply.status(204).send();
-    },
-  );
+  // Removing others stays OWNER-only; anyone may remove themselves (leave).
+  // Unknown list → 404 via requireMembership/removeListMember either way.
+  app.delete("/lists/:id/members/:userId", { preHandler: requireAuth }, async (request, reply) => {
+    const { id, userId } = memberParamsSchema.parse(request.params);
+    if (request.user.id !== userId) {
+      const role = listService.requireMembership(db, id, request.user.id);
+      if (role !== "OWNER") {
+        throw new FastifyHttpError(403, "FORBIDDEN", "This action requires the OWNER role");
+      }
+    }
+    listService.removeListMember(db, id, userId);
+    return reply.status(204).send();
+  });
 }

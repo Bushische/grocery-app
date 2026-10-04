@@ -230,8 +230,19 @@ export function removeListMember(db: Db, listId: string, userId: string): void {
   if (!list) {
     throw listNotFound(listId);
   }
-  if (userId === list.ownerId) {
-    throw new FastifyHttpError(409, "CONFLICT", "The list owner cannot be removed");
+  // The last OWNER cannot go (self-leave or kick) — ownership would dangle.
+  // Transfer ownership first (via role change) or delete the list instead.
+  const owners = db
+    .select({ userId: listMembers.userId })
+    .from(listMembers)
+    .where(and(eq(listMembers.listId, listId), eq(listMembers.role, "OWNER")))
+    .all();
+  if (owners.some((owner) => owner.userId === userId) && owners.length === 1) {
+    throw new FastifyHttpError(
+      409,
+      "CONFLICT",
+      "The last owner cannot leave — transfer ownership or delete the list",
+    );
   }
   const result = db
     .delete(listMembers)

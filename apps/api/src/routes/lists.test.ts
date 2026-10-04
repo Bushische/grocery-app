@@ -638,6 +638,32 @@ describe("DELETE /lists/:id/members/:userId", () => {
     ).toBeUndefined();
   });
 
+  it("lets EDITOR and VIEWER leave (remove themselves) with 204 (T88)", async () => {
+    for (const [token, email] of [
+      [editorToken, EDITOR.email],
+      [viewerToken, VIEWER.email],
+    ] as const) {
+      // Scratch list per role so the shared family fixture stays intact.
+      const created = await createList(ownerToken, `Leave ${email}`);
+      const listId = (created.json() as { id: string }).id;
+      const role = email === EDITOR.email ? "EDITOR" : "VIEWER";
+      expect((await addMember(ownerToken, listId, email, role)).statusCode).toBe(201);
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/lists/${listId}/members/${userIdByEmail(email)}`,
+        headers: bearer(token),
+      });
+      expect(res.statusCode).toBe(204);
+      expect(
+        db
+          .select()
+          .from(listMembers)
+          .where(and(eq(listMembers.listId, listId), eq(listMembers.userId, userIdByEmail(email))))
+          .get(),
+      ).toBeUndefined();
+    }
+  });
+
   it("rejects removing the list owner with 409", async () => {
     const res = await app.inject({
       method: "DELETE",
@@ -658,11 +684,16 @@ describe("DELETE /lists/:id/members/:userId", () => {
     expect(res.json().error.code).toBe("NOT_FOUND");
   });
 
-  it("rejects EDITOR and VIEWER with 403 (owner-only)", async () => {
-    for (const token of [editorToken, viewerToken]) {
+  it("rejects EDITOR and VIEWER removing others with 403 (owner-only)", async () => {
+    // NOTE: removing *oneself* is allowed (leave — T88 test above), so both
+    // callers target somebody else here.
+    for (const [token, email] of [
+      [editorToken, VIEWER.email],
+      [viewerToken, EDITOR.email],
+    ] as const) {
       const res = await app.inject({
         method: "DELETE",
-        url: `/lists/${familyListId}/members/${userIdByEmail(VIEWER.email)}`,
+        url: `/lists/${familyListId}/members/${userIdByEmail(email)}`,
         headers: bearer(token),
       });
       expect(res.statusCode).toBe(403);

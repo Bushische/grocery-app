@@ -259,7 +259,7 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Party" })).toBeInTheDocument());
   });
 
-  it("hides the OWNER-only actions (delete, members) for a non-OWNER selected list", async () => {
+  it("hides the OWNER-only delete action for a non-OWNER selected list (Members stays, T88)", async () => {
     const mock = createApiFetchMock();
     stubDefaultRoutes(mock);
     mock.stub();
@@ -275,7 +275,7 @@ describe("ListsPage (docs/TASKS.md → T30 single-line header + overlay menu)", 
 
     await openMenu(user);
     expect(screen.queryByRole("button", { name: "Delete list" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Categories" })).toBeInTheDocument();
   });
 

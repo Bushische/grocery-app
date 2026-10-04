@@ -6,7 +6,8 @@ export const listDetailQueryKey = (listId: string) => ["list", listId] as const;
 
 /**
  * GET /lists/:id — title, owner, and members. Enabled only with a known list:
- * the members page resolves the caller's role first and fetches for OWNERs.
+ * the members page resolves the caller's role first and fetches for members
+ * (owners manage, others read + leave); never for non-members.
  */
 export function useListDetail(listId: string | null) {
   return useQuery({

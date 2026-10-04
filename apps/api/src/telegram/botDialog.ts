@@ -4,6 +4,7 @@ import { type GroceryIntent, parseGroceryIntent } from "../alice/nlu";
 import type { Db } from "../db/client";
 import { createItem, listItems, moveItem, smartAddItem, updateItem } from "../services/itemService";
 import { getMembership, listListsForUser } from "../services/listService";
+import { diceCoefficient } from "../services/textMatching";
 import type { ListChoice } from "./botApi";
 import { getChatDefaultWithTitle, setChatDefault } from "./chatDefaults";
 import type { ActionExtractor } from "./extract";
@@ -678,9 +679,10 @@ function runIntent(
 /**
  * Adds several products at once (T65): each fragment through `smartAddItem`
  * (re-activation semantics kept), per-fragment leading quantities applied,
- * one summary reply. T78: a comma-separated chat list is deliberate — only
- * `exact` matches dedup; `substring`/`fuzzy` near-misses force-create instead
- * of merging ("item1, item2, item3" must yield three rows, not one).
+ * one summary reply. T78/T89: a comma-separated chat list is deliberate —
+ * only close matches dedup (`exact`, plural-fold equality, Dice ≥ 0.85);
+ * anything else force-creates ("item1, item2, item3" yields three rows while
+ * "oranges" still finds `Orange`).
  */
 function handleAddMany(
   db: Db,
@@ -702,6 +704,15 @@ function handleAddMany(
         updateItem(db, result.item.id, { qtyText });
       }
       (result.created ? added : kept).push(result.item.title);
+      continue;
+    }
+    // Near-miss on a deliberate list: keep only plural/typo variants of the
+    // matched title, create genuinely different fragments (T89).
+    if (
+      pluralFold(normalize(name)) === pluralFold(normalize(result.item.title)) ||
+      diceCoefficient(name, result.item.title) >= CHAT_KEEP_THRESHOLD
+    ) {
+      kept.push(result.item.title);
       continue;
     }
     const created = createItem(db, listId, { title: name });
@@ -734,6 +745,24 @@ function handleAddMany(
         ? `Добавил в «${title}»:\n${added.map(bullet).join("\n")}${keptNote}`
         : `Added to "${title}":\n${added.map(bullet).join("\n")}${keptNote}`,
   };
+}
+
+/** Chat multi-add merge bar (T89): below it, fragments are distinct items. */
+const CHAT_KEEP_THRESHOLD = 0.85;
+
+/**
+ * Naive English plural fold for chat dedup, applied to both sides
+ * ("oranges"→"orange", "berries"→"berry"); consistent by construction.
+ */
+function pluralFold(value: string): string {
+  const folded = value.endsWith("ies")
+    ? `${value.slice(0, -3)}y`
+    : value.endsWith("es")
+      ? value.slice(0, -2)
+      : value.endsWith("s")
+        ? value.slice(0, -1)
+        : value;
+  return folded === "" ? value : folded;
 }
 
 function noRights(title: string, lang: Lang): TelegramChatAnswer {

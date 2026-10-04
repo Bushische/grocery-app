@@ -418,8 +418,10 @@ describe("multi-add exact-only dedup (T78)", () => {
     const user = createUser("tg-t78-dup@example.com");
     createList(db, user, "T78D");
     expect(await answerText(user, "buy apple", true, "", {}, chat)).toContain("apple");
-    // Near-miss coexists in multi-add …
-    expect(await answerText(user, "apple, apples", true, "", {}, chat)).toContain("apples");
+    // Plural folds back to the listed title (T89 supersedes T78 coexistence)…
+    const plural = (await answerText(user, "apple, apples", true, "", {}, chat)) ?? "";
+    expect(plural).toContain("Already on");
+    expect(plural).not.toContain("Added");
     // … while single-add keeps the smart already-on keep (exact and fuzzy).
     expect(await answerText(user, "buy apples", true, "", {}, chat)).toContain("already on");
     expect(await answerText(user, "buy aple", true, "", {}, chat)).toContain("already on");
@@ -430,9 +432,25 @@ describe("multi-add exact-only dedup (T78)", () => {
     const user = createUser("tg-t81@example.com");
     createList(db, user, "T81");
     const reply =
-      (await answerText(user, "need to buy: t81-fig1, t81-fig2", true, "", {}, chat)) ?? "";
-    expect(reply).toContain("t81-fig1");
-    expect(reply).toContain("t81-fig2");
+      (await answerText(user, "need to buy: t81-quince, t81-feijoa", true, "", {}, chat)) ?? "";
+    expect(reply).toContain("t81-quince");
+    expect(reply).toContain("t81-feijoa");
+  });
+});
+
+describe("multi-add plural/typo merge (T89)", () => {
+  it("merges case/plural/typo variants, keeps distinct fragments apart", async () => {
+    const chat = `chat:t89-${createId()}`;
+    const user = createUser("tg-t89@example.com");
+    createList(db, user, "T89");
+    expect(await answerText(user, "buy Apple", true, "", {}, chat)).toContain("apple");
+    expect(await answerText(user, "buy Orange", true, "", {}, chat)).toContain("orange");
+    // "apple" (case) + "oranges" (plural, Dice ~0.91) fold into the listed rows.
+    const kept = (await answerText(user, "apple and oranges", true, "", {}, chat)) ?? "";
+    expect(kept).toContain("Already on");
+    expect(kept).not.toContain("Added");
+    // Typo just above the bar merges too ("aple"/"apple" Dice ~0.86).
+    expect(await answerText(user, "bake, aple", true, "", {}, chat)).toContain("apple");
   });
 });
 

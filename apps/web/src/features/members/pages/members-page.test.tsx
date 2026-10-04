@@ -112,20 +112,53 @@ describe("MembersPage (docs/TASKS.md → T20)", () => {
     expect(screen.getByText("No members yet — add one by email above.")).toBeInTheDocument();
   });
 
-  it("EDITOR cannot open it (DoD): notice instead of the editor, member data never fetched", async () => {
+  it("EDITOR sees a read-only roster with the owner email, never the editor (T88)", async () => {
     const mock = createApiFetchMock();
     stubWorld(mock, initialWorld());
     mock.stub();
 
     renderPage("EDITOR");
 
-    expect(await screen.findByText("Only the list owner can manage members.")).toBeInTheDocument();
+    expect(await screen.findByTestId("member-row-u1")).toBeInTheDocument();
+    expect(screen.getByText("alex@example.com")).toBeInTheDocument();
+    expect(screen.getByText("List owner")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Add member" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("member-row-u2")).not.toBeInTheDocument();
-    expect(mock.callsTo("GET", "/api/lists/l1")).toHaveLength(0);
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Leave Weekly" })).toBeInTheDocument();
+    // Member data IS fetched for members (never for non-members).
+    expect(mock.callsTo("GET", "/api/lists/l1")).toHaveLength(1);
   });
 
-  it("VIEWER cannot open it via deep link (role resolved from the lists cache)", async () => {
+  it("leaves the list on confirm: DELETE self, lists refetch (T88)", async () => {
+    const mock = createApiFetchMock();
+    const world = initialWorld();
+    stubWorld(mock, world);
+    mock.on("DELETE", "/api/lists/l1/members/u1", (): MockResponseSpec => {
+      world.members = world.members.filter((member) => member.userId !== "u1");
+      return json(204);
+    });
+    mock.stub();
+    const user = userEvent.setup();
+
+    // u1 (the session user) is EDITOR here, boss owns the list.
+    world.owner = { id: "u9", email: "boss@example.com" };
+    world.members = [
+      { userId: "u9", email: "boss@example.com", role: "OWNER" },
+      { userId: "u1", email: "alex@example.com", role: "EDITOR" },
+      { userId: "u2", email: "mom@example.com", role: "VIEWER" },
+    ];
+    renderPage("EDITOR");
+    await screen.findByTestId("member-row-u2");
+
+    await user.click(screen.getByRole("button", { name: "Leave Weekly" }));
+    expect(mock.callsTo("DELETE", "/api/lists/l1/members/u1")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Confirm leave Weekly" }));
+
+    await waitFor(() => expect(mock.callsTo("DELETE", "/api/lists/l1/members/u1")).toHaveLength(1));
+    await waitFor(() => expect(mock.callsTo("GET", "/api/lists")).toHaveLength(2));
+  });
+
+  it("VIEWER opens it read-only via deep link (role resolved from the lists cache, T88)", async () => {
     const mock = createApiFetchMock();
     const world = initialWorld();
     world.members = [
@@ -143,9 +176,10 @@ describe("MembersPage (docs/TASKS.md → T20)", () => {
     // No navigation state — the role comes from GET /lists (alex is VIEWER here).
     renderPage();
 
-    expect(await screen.findByText("Only the list owner can manage members.")).toBeInTheDocument();
+    expect(await screen.findByTestId("member-row-u2")).toBeInTheDocument();
+    expect(screen.getByText("mom@example.com")).toBeInTheDocument();
+    expect(screen.getByText("List owner")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Add member" })).not.toBeInTheDocument();
-    expect(mock.callsTo("GET", "/api/lists/l1")).toHaveLength(0);
   });
 
   it("tells a non-member the list is not theirs", async () => {
@@ -354,11 +388,22 @@ describe("T20 Definition of Done: entry point is OWNER-only end to end", () => {
     expect(mock.callsTo("GET", "/api/lists/l1")).toHaveLength(2);
   });
 
-  it("the main screen offers no Members button for a list where the user is EDITOR", async () => {
+  it("the main screen offers Members for EDITOR too: read-only roster, no manager controls (T88)", async () => {
     const mock = createApiFetchMock();
     stubWorld(mock, initialWorld());
     mock.on("GET", "/api/lists/l1/items", () => json(200, { items: [] }));
     mock.on("GET", "/api/lists/l2/items", () => json(200, { items: [] }));
+    mock.on("GET", "/api/lists/l2", () =>
+      json(200, {
+        id: "l2",
+        title: "Party",
+        owner: { id: "u9", email: "boss@example.com" },
+        members: [
+          { userId: "u9", email: "boss@example.com", role: "OWNER" },
+          { userId: "u1", email: "alex@example.com", role: "EDITOR" },
+        ],
+      }),
+    );
     mock.stub();
     const user = userEvent.setup();
 
@@ -382,9 +427,12 @@ describe("T20 Definition of Done: entry point is OWNER-only end to end", () => {
     await user.click(await screen.findByRole("button", { name: "Party EDITOR" }));
     await screen.findByRole("heading", { name: "Party" });
     await user.click(screen.getByRole("button", { name: "Menu" }));
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument(),
-    );
+    // Members stays for non-owners (read-only roster + leave, no manager controls).
+    await user.click(await screen.findByRole("button", { name: "Members" }));
+    expect(await screen.findByText("boss@example.com")).toBeInTheDocument();
+    expect(screen.getByText("List owner")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Leave Party" })).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Add member" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete list" })).not.toBeInTheDocument();
   });
 });
