@@ -380,6 +380,30 @@ describe("inline choices (T70)", () => {
   });
 });
 
+describe("multi-add exact-only dedup (T78)", () => {
+  it("adds item1, item2, item3 as three rows instead of fuzzy-merging", async () => {
+    const chat = `chat:t78-${createId()}`;
+    const user = createUser("tg-t78@example.com");
+    createList(db, user, "T78");
+    const reply = (await answerText(user, "item1, item2, item3", true, "", {}, chat)) ?? "";
+    expect(reply).toContain('"item1"');
+    expect(reply).toContain('"item2"');
+    expect(reply).toContain('"item3"');
+  });
+
+  it("still dedups exact repeats and keeps single-add smart behavior", async () => {
+    const chat = `chat:t78-dup-${createId()}`;
+    const user = createUser("tg-t78-dup@example.com");
+    createList(db, user, "T78D");
+    expect(await answerText(user, "buy apple", true, "", {}, chat)).toContain("apple");
+    // Near-miss coexists in multi-add …
+    expect(await answerText(user, "apple, apples", true, "", {}, chat)).toContain("apples");
+    // … while single-add keeps the smart already-on keep (exact and fuzzy).
+    expect(await answerText(user, "buy apples", true, "", {}, chat)).toContain("already on");
+    expect(await answerText(user, "buy aple", true, "", {}, chat)).toContain("already on");
+  });
+});
+
 describe("stale chat defaults (T69)", () => {
   it("stale defaults fall through without errors", async () => {
     const chat = `chat:t69-stale-${createId()}`;

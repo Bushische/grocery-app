@@ -2,7 +2,7 @@ import { findItemBySpokenName } from "../alice/dialog";
 import { matchListChoice } from "../alice/links";
 import { type GroceryIntent, parseGroceryIntent } from "../alice/nlu";
 import type { Db } from "../db/client";
-import { listItems, moveItem, smartAddItem, updateItem } from "../services/itemService";
+import { createItem, listItems, moveItem, smartAddItem, updateItem } from "../services/itemService";
 import { getMembership, listListsForUser } from "../services/listService";
 import type { ListChoice } from "./botApi";
 import { getChatDefaultWithTitle, setChatDefault } from "./chatDefaults";
@@ -599,7 +599,9 @@ function runIntent(
 /**
  * Adds several products at once (T65): each fragment through `smartAddItem`
  * (re-activation semantics kept), per-fragment leading quantities applied,
- * one summary reply.
+ * one summary reply. T78: a comma-separated chat list is deliberate — only
+ * `exact` matches dedup; `substring`/`fuzzy` near-misses force-create instead
+ * of merging ("item1, item2, item3" must yield three rows, not one).
  */
 function handleAddMany(
   db: Db,
@@ -616,10 +618,18 @@ function handleAddMany(
     const { name, qtyText } = splitLeadingDigits(fragment);
     if (name === "") continue;
     const result = smartAddItem(db, listId, name);
-    if (qtyText !== undefined && result.created) {
-      updateItem(db, result.item.id, { qtyText });
+    if (result.created || result.matchedBy === "exact") {
+      if (qtyText !== undefined && result.created) {
+        updateItem(db, result.item.id, { qtyText });
+      }
+      (result.created ? added : kept).push(result.item.title);
+      continue;
     }
-    (result.created ? added : kept).push(result.item.title);
+    const created = createItem(db, listId, { title: name });
+    if (qtyText !== undefined) {
+      updateItem(db, created.id, { qtyText });
+    }
+    added.push(created.title);
   }
   const quote = lang === "ru" ? quoteRu : quoteEn;
   if (added.length === 0) {
