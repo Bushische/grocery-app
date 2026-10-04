@@ -212,13 +212,18 @@ Mini App link as identity — no second account system.
 - **Replies:** plain text (no `parse_mode` escaping bugs), language follows the
   message (Cyrillic → RU, else EN), every grocery reply carries an inline
   `web_app` button (`TELEGRAM_MINI_APP_URL`) that opens the Mini App.
-- **JEV fallback (T66):** deterministic-unknown messages go to TypeSafe JEV
-  (`typesafe/jev-1.13` pinned, Decisions API) for ONE `choice` question —
-  which action? — with a 0.6 confidence floor; product names still come from
-  the deterministic splitter (JEV emits no text). The `Extractor` seam
-  (`extract.ts`) lets a future chat LLM (`/chat/completions` + `json_schema`)
-  replace JEV without touching webhook/dialog/services. `EXTRACTION_BACKEND`
-  switches backends (default deterministic = zero external calls).
+- **JEV fallback (T66) + generic routing (T82):** polite-need prefixes are
+  stripped by one modal rule (`надо/хочу/need/want` + infinitive → add;
+  bare → list) instead of per-phrase keywords; deterministic-unknown AND
+  shaky mid-sentence buy/unbuy parses go to TypeSafe JEV (`typesafe/jev-1.13`
+  pinned, Decisions API) for ONE `choice` question — which action? — with a
+  0.6 confidence floor; a confident verdict overrides the shaky parse,
+  otherwise the   deterministic intent stands (no extractor = today's behavior). Product names
+  still come from the deterministic splitter (JEV emits no text). The
+  `Extractor` seam (`extract.ts`) lets a future chat LLM (`/chat/completions`
+  + `json_schema`) replace JEV without touching webhook/dialog/services.
+  `EXTRACTION_BACKEND` switches backends (default deterministic = zero
+  external calls).
 - **Ops (manual):** `setWebhook` curl after each deploy (URL never changes, so
   once per bot in practice) with   `allowed_updates=["message","callback_query"]`,
   `/setprivacy` Enable + re-add (privacy ON — only `/commands`, `@mentions`,

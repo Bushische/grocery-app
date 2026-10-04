@@ -79,18 +79,30 @@ function stripEdgePlease(value: string): string {
     .trim();
 }
 
+/**
+ * A polite-need prefix (T82): one generic rule instead of per-phrase keywords
+ * ("need to buy", "надо купить", "хочу …", "I need …"). Strips an optional
+ * courtesy/pronoun head, a modal word, and an infinitive — the remainder is
+ * the products ("надо купить: яблоки, хлеб" → "яблоки, хлеб"); nothing left
+ * means a readout request ("надо купить" → list).
+ */
+const MODAL_HEAD =
+  /^(?:пожалуйста,?\s+|please\s+)?(?:(?:я|мне|нам|i|we)\s+)?(?:надо|нужно|необходимо|хочу|хочется|не\s+забудь(?:те)?|need(?:\s+to)?|want(?:\s+to)?|wanna|gotta|going\s+to|don't\s+forget|remember\s+to)\s+(.*)$/su;
+const INFINITIVE_HEAD =
+  /^(?:купить|покупать|buy(?:\s+to)?|to\s+buy|добавить|add|взять|take|bring(?:\s+along)?)\s*:?\s*(.*)$/su;
+
 /** Maps English verbs onto the Russian verbs Alice NLU parses, then delegates. */
 export function parseTelegramIntent(rawCommand: string): GroceryIntent {
   const command = normalize(stripEdgePlease(rawCommand));
   if (command === "") return { kind: "unknown" };
   if (isEnglishListCommand(command)) return { kind: "list" };
-  // "need to buy" (T81): with products it's an add-all ("need to buy: a, b" —
-  // the comma split happens downstream), bare it's a readout request.
-  const needToBuy = command.match(/^(need to buy|нужно купить)\s*:?\s*(.*)$/u);
-  if (needToBuy) {
-    const rest = (needToBuy[2] ?? "").trim();
-    if (rest === "") return { kind: "list" };
-    return parseGroceryIntent(`добавь ${rest}`);
+  const modal = command.match(MODAL_HEAD);
+  if (modal) {
+    const withoutModal = (modal[1] ?? "").trim();
+    const infinitive = withoutModal.match(INFINITIVE_HEAD);
+    const products = infinitive ? (infinitive[1] ?? "").trim() : withoutModal;
+    if (products === "") return { kind: "list" };
+    return parseGroceryIntent(`добавь ${products}`);
   }
   return parseGroceryIntent(mapChatVerbs(command));
 }
@@ -386,45 +398,16 @@ export async function handleTelegramChat(
     // Last resort before clarifying (T66): a configured extractor (JEV)
     // judges the message; below-threshold or failed verdicts fall through
     // to the quote/fragment/clarify handling below.
-    if (deps.extractor) {
-      const judged = await deps.extractor.extractAction(
-        resolution.rest !== "" ? resolution.rest : quote,
-      );
-      const threshold = deps.confidenceThreshold ?? DEFAULT_JEV_CONFIDENCE_THRESHOLD;
-      if (judged.action !== "unknown" && judged.confidence >= threshold) {
-        const products = quote !== "" ? quote : resolution.rest;
-        if (judged.action === "list") {
-          return runIntent(db, userId, resolution.listId, resolution.title, { kind: "list" }, lang);
-        }
-        if (judged.action === "add") {
-          const fragments = splitItems(products);
-          if (fragments.length >= 2) {
-            return handleAddMany(db, userId, resolution.listId, resolution.title, fragments, lang);
-          }
-          if (fragments.length === 1 && fragments[0] !== undefined) {
-            return runIntent(
-              db,
-              userId,
-              resolution.listId,
-              resolution.title,
-              { kind: "add", name: fragments[0] },
-              lang,
-            );
-          }
-        } else if (products.trim() !== "") {
-          // buy/unbuy: the whole text is the item name — the fuzzy matcher
-          // clarifies on miss rather than moving the wrong item.
-          return runIntent(
-            db,
-            userId,
-            resolution.listId,
-            resolution.title,
-            { kind: judged.action, name: products.trim() },
-            lang,
-          );
-        }
-      }
-    }
+    const judged = await applyJudgedAction(
+      db,
+      userId,
+      resolution,
+      quote,
+      lang,
+      deps.extractor,
+      deps.confidenceThreshold,
+    );
+    if (judged) return judged;
     // No products in the command itself: fall back to the quoted message
     // (T65 — reply-`/buy`, or a list-hint-only `/buy in Home` reply).
     if (quote !== "") {
@@ -445,7 +428,91 @@ export async function handleTelegramChat(
           : 'Didn\'t get that. Try "buy milk", "what to buy", "bought milk".',
     };
   }
+  // A mid-sentence buy/unbuy verb is a shaky parse (T82: "надо купить X" reads
+  // as mark-bought) — a confident JEV verdict overrides it, otherwise the
+  // deterministic intent stands. Without an extractor this never triggers.
+  if (deps.extractor && isWeakBuyUnbuy(resolution.rest, intent)) {
+    const judged = await applyJudgedAction(
+      db,
+      userId,
+      resolution,
+      quote,
+      lang,
+      deps.extractor,
+      deps.confidenceThreshold,
+    );
+    if (judged) return judged;
+  }
   return runIntent(db, userId, resolution.listId, resolution.title, intent, lang);
+}
+
+/** Leading buy/unbuy verbs (firm parses); infinitive купить is excluded. */
+const LEADING_BUY_UNBUY =
+  /^(купили|купил|купила|купило|куплено|куплен|куплена|отметь|отметьте|отметить|верни|верните|вернуть|bought|done|unbuy|return)(?=\s|$)/u;
+
+/**
+ * True for buy/unbuy intents parsed off a mid-sentence verb ("вчера купили
+ * молоко", "надо купить X") — worth a JEV second opinion when configured.
+ */
+function isWeakBuyUnbuy(rawCommand: string, intent: GroceryIntent): boolean {
+  if (intent.kind !== "buy" && intent.kind !== "unbuy") return false;
+  return !LEADING_BUY_UNBUY.test(normalize(rawCommand));
+}
+
+/**
+ * Asks the extractor (JEV) to judge an already-resolved turn. Returns an
+ * answer when a confident verdict applies, undefined to fall through to the
+ * caller's deterministic handling (quote/fragments/clarify, or the shaky
+ * intent itself).
+ */
+async function applyJudgedAction(
+  db: Db,
+  userId: string,
+  resolution: Extract<ListResolution, { kind: "resolved" }>,
+  quote: string,
+  lang: Lang,
+  extractor: ActionExtractor | undefined,
+  confidenceThreshold: number | undefined,
+): Promise<TelegramChatAnswer | undefined> {
+  if (!extractor) return undefined;
+  const judged = await extractor.extractAction(resolution.rest !== "" ? resolution.rest : quote);
+  const threshold = confidenceThreshold ?? DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+  if (judged.action === "unknown" || judged.confidence < threshold) return undefined;
+  const products = quote !== "" ? quote : resolution.rest;
+  if (judged.action === "list") {
+    return runIntent(db, userId, resolution.listId, resolution.title, { kind: "list" }, lang);
+  }
+  if (judged.action === "add") {
+    const fragments = splitItems(products);
+    if (fragments.length >= 2) {
+      return handleAddMany(db, userId, resolution.listId, resolution.title, fragments, lang);
+    }
+    if (fragments.length === 1 && fragments[0] !== undefined) {
+      return runIntent(
+        db,
+        userId,
+        resolution.listId,
+        resolution.title,
+        { kind: "add", name: fragments[0] },
+        lang,
+      );
+    }
+    return undefined;
+  }
+  if (products.trim() === "") return undefined;
+  // buy/unbuy: the whole text is the item name — the fuzzy matcher
+  // clarifies on miss rather than moving the wrong item.
+  return runIntent(
+    db,
+    userId,
+    resolution.listId,
+    resolution.title,
+    {
+      kind: judged.action,
+      name: products.trim(),
+    },
+    lang,
+  );
 }
 
 /**

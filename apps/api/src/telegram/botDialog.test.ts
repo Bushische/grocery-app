@@ -75,6 +75,19 @@ describe("parseTelegramIntent (T63 — EN verbs onto Alice NLU)", () => {
     expect(parseTelegramIntent("milk back to list")).toEqual({ kind: "unbuy", name: "milk" });
   });
 
+  it("strips modal need/want prefixes (T82 — one rule, no per-phrase keywords)", async () => {
+    expect(parseTelegramIntent("надо купить яблоки, хлеб")).toEqual({
+      kind: "add",
+      name: "яблоки, хлеб",
+    });
+    expect(parseTelegramIntent("хочу купить молока")).toEqual({ kind: "add", name: "молока" });
+    expect(parseTelegramIntent("не забудь купить хлеб")).toEqual({ kind: "add", name: "хлеб" });
+    expect(parseTelegramIntent("I need milk")).toEqual({ kind: "add", name: "milk" });
+    expect(parseTelegramIntent("we need bread")).toEqual({ kind: "add", name: "bread" });
+    expect(parseTelegramIntent("надо купить")).toEqual({ kind: "list" });
+    expect(parseTelegramIntent("надо")).toEqual({ kind: "unknown" });
+  });
+
   it("recognizes English list commands and keeps Russian parsing intact", async () => {
     expect(parseTelegramIntent("what to buy")).toEqual({ kind: "list" });
     expect(parseTelegramIntent("show list")).toEqual({ kind: "list" });
@@ -579,5 +592,58 @@ describe("formatted list-family replies (T74)", () => {
     expect(listed.length).toBeLessThan(4096);
     const lists = (await answerText(user, "lists", true, "", {}, chat)) ?? "";
     expect(lists.length).toBeLessThan(4096);
+  });
+});
+
+describe("weak-parse JEV arbitration (T82)", () => {
+  it("asks the extractor on mid-sentence verbs; a confident verdict wins", async () => {
+    const chat = `chat:t82-${createId()}`;
+    const user = createUser("tg-t82@example.com");
+    createList(db, user, "T82");
+    let calls = 0;
+    const countingList = {
+      extractor: {
+        extractAction: async () => {
+          calls += 1;
+          return { action: "list" as const, confidence: 0.9 };
+        },
+      },
+    };
+    await answerText(user, "buy t82-kefir", true, "", {}, chat);
+    const readout =
+      (await answerText(user, "вчера купили молоко", true, "", countingList, chat)) ?? "";
+    expect(calls).toBe(1);
+    expect(readout).toContain("t82-kefir");
+  });
+
+  it("an unsure verdict keeps the deterministic intent", async () => {
+    const chat = `chat:t82-fb-${createId()}`;
+    const user = createUser("tg-t82-fb@example.com");
+    createList(db, user, "T82F");
+    await answerText(user, "buy t82-milk", true, "", {}, chat);
+    const unsure = {
+      extractor: { extractAction: async () => ({ action: "unknown" as const, confidence: 0 }) },
+    };
+    expect(await answerText(user, "вчера купили t82-milk", true, "", unsure, chat)).toContain(
+      "купленным",
+    );
+  });
+
+  it("firm leading verbs never consult the extractor", async () => {
+    const chat = `chat:t82-firm-${createId()}`;
+    const user = createUser("tg-t82-firm@example.com");
+    createList(db, user, "T82G");
+    let calls = 0;
+    const counting = {
+      extractor: {
+        extractAction: async () => {
+          calls += 1;
+          return { action: "unknown" as const, confidence: 0 };
+        },
+      },
+    };
+    await answerText(user, "bought t82-ryazhenka", true, "", counting, chat);
+    await answerText(user, "купили t82-prostokvasha", true, "", counting, chat);
+    expect(calls).toBe(0);
   });
 });
