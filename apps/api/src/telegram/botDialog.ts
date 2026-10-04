@@ -490,7 +490,8 @@ function runIntent(
   lang: Lang,
 ): TelegramChatAnswer {
   switch (intent.kind) {
-    case "list": {
+    case "list":
+    case "next": {
       const toBuy = listItems(db, listId, "TO_BUY");
       if (toBuy.length === 0) {
         return {

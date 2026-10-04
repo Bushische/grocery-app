@@ -21,7 +21,10 @@ export interface ActionExtractor {
 export class DeterministicExtractor implements ActionExtractor {
   async extractAction(text: string): Promise<ExtractedAction> {
     const intent = parseTelegramIntent(text);
-    return { action: intent.kind, confidence: intent.kind === "unknown" ? 0 : 1 };
+    // Telegram keeps no readout offset (T79 pagination is Alice-only):
+    // "next" simply re-shows the list.
+    const action = intent.kind === "next" ? "list" : intent.kind;
+    return { action, confidence: action === "unknown" ? 0 : 1 };
   }
 }
 
