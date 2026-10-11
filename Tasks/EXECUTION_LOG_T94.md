@@ -9,3 +9,4 @@
 
 ## Session notes
 - 2026-10-11 | T94 | opencode/muse-spark-1.3-contributor-free | Category reorder: shared schema, service+POST route+API.md, sortable ≡ rows, useReorderCategories; 21 new specs; gate lint+795 green.
+- 2026-10-12 | T94 | opencode/muse-spark-1.3-contributor-free | completed and committed (d4e1e7e)
