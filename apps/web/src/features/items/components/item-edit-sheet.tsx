@@ -58,8 +58,8 @@ export function ItemEditSheet({ item, listId, open, onClose, onOpenDetails }: It
               pending={updateItem.isPending}
               error={updateItem.isError ? "Could not save the changes. Please try again." : null}
               onSave={(patch) =>
-                updateItem.mutate(patch, {
-                  onSuccess: onClose,
+                updateItem.mutateAsync(patch).then(() => {
+                  onClose();
                 })
               }
               midActions={

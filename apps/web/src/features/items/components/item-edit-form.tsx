@@ -2,6 +2,7 @@ import type { Category, Item, UpdateItemRequest } from "@grocery/shared";
 import { titleSchema } from "@grocery/shared";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -25,7 +26,12 @@ export interface ItemEditFormProps {
   categories: Category[] | null;
   pending: boolean;
   error: string | null;
-  onSave: (patch: UpdateItemRequest) => void;
+  /**
+   * Persists the patch; may return a promise (T92: the form awaits it so the
+   * Saved feedback only shows after the server confirms — a rejection keeps
+   * the form dirty for retry and the caller surfaces `error`).
+   */
+  onSave: (patch: UpdateItemRequest) => unknown | Promise<unknown>;
   /**
    * Optional row rendered between the Quantity field and the error/submit
    * block (T91: the edit bottom-sheet injects its "Open full details" plus
@@ -37,6 +43,8 @@ export interface ItemEditFormProps {
 /**
  * The item's editable fields (docs/TASKS.md → T18): title, category select,
  * quantity. An empty quantity clears `qtyText` on the server (`qtyText: null`).
+ * T92: after a confirmed save the form resets to pristine and the submit
+ * reads Saved (shaded, disabled) until the next edit re-arms it.
  */
 export function ItemEditForm({
   item,
@@ -49,6 +57,7 @@ export function ItemEditForm({
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isDirty },
   } = useForm<ItemFormValues>({
     resolver: zodResolver(itemFormSchema),
@@ -58,14 +67,29 @@ export function ItemEditForm({
       qty: item.qtyText ?? "",
     },
   });
+  const [saved, setSaved] = useState(false);
 
-  const onSubmit = handleSubmit((values) => {
+  // Any edit after a confirmed save re-arms the button.
+  useEffect(() => {
+    if (isDirty) setSaved(false);
+  }, [isDirty]);
+
+  const onSubmit = handleSubmit(async (values) => {
     const qty = values.qty.trim();
-    onSave({
+    const patch = {
       title: values.title,
       categoryId: values.categoryId,
       qtyText: qty === "" ? null : qty,
-    });
+    };
+    try {
+      await onSave(patch);
+    } catch {
+      // The caller reports the failure via the `error` prop; the form stays
+      // dirty so the user can retry with the same values.
+      return;
+    }
+    reset(values);
+    setSaved(true);
   });
 
   // Without the list context the category stays read-only (deep-linked detail).
@@ -139,7 +163,7 @@ export function ItemEditForm({
         disabled={pending || !isDirty}
         className="min-h-11 w-full rounded-lg bg-green-600 px-4 text-base font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {pending ? "Saving…" : "Save changes"}
+        {pending ? "Saving…" : saved && !isDirty ? "Saved" : "Save changes"}
       </button>
     </form>
   );

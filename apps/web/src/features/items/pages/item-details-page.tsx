@@ -103,7 +103,7 @@ export function ItemDetailsPage() {
             categories={categories.data ?? null}
             pending={updateItem.isPending}
             error={updateItem.isError ? "Could not save the changes. Please try again." : null}
-            onSave={(patch) => updateItem.mutate(patch)}
+            onSave={(patch) => updateItem.mutateAsync(patch)}
           />
         </section>
 
