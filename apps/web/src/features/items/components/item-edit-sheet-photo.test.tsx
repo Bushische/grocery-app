@@ -132,3 +132,51 @@ describe("ItemEditSheet photo thumbnail (T90)", () => {
     expect(screen.getByTestId("image-lightbox")).toBeInTheDocument();
   });
 });
+
+describe("ItemEditSheet layout (T91)", () => {
+  afterEach(() => {
+    useAuthStore.setState({ accessToken: null, user: null });
+  });
+
+  it("orders fields on top, details-plus-photo row in the middle, Save last", async () => {
+    renderSheet(itemWithPhoto());
+
+    const title = await screen.findByLabelText("Title");
+    const category = await screen.findByLabelText("Category");
+    const qty = screen.getByLabelText("Quantity (optional)");
+    const row = await screen.findByTestId("edit-sheet-actions-i1");
+    const save = screen.getByRole("button", { name: "Save changes" });
+
+    for (const [earlier, later] of [
+      [title, category],
+      [category, qty],
+      [qty, row],
+      [row, save],
+    ] as const) {
+      expect(
+        earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
+  it("renders Open full details and the thumbnail on one flex row, link left", async () => {
+    renderSheet(itemWithPhoto());
+
+    const row = await screen.findByTestId("edit-sheet-actions-i1");
+    expect(row.className).toMatch(/flex/);
+    const link = screen.getByTestId("full-details-i1");
+    const thumbnail = screen.getByTestId("edit-sheet-photo-i1");
+    expect(row).toContainElement(link);
+    expect(row).toContainElement(thumbnail);
+    expect(link.compareDocumentPosition(thumbnail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.className).toMatch(/flex-1/);
+  });
+
+  it("shows the details link without a thumbnail when the item has no photo", async () => {
+    renderSheet({ ...itemWithPhoto(), imageFilename: null });
+
+    expect(await screen.findByTestId("edit-sheet-i1")).toBeInTheDocument();
+    expect(screen.getByTestId("full-details-i1")).toBeInTheDocument();
+    expect(screen.queryByTestId("edit-sheet-photo-i1")).not.toBeInTheDocument();
+  });
+});

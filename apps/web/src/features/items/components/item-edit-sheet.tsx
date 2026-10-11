@@ -24,6 +24,8 @@ export interface ItemEditSheetProps {
  * T90: when the item has a photo, a small thumbnail opens the shared
  * full-screen `ImageLightbox` (same testids/behavior as T46); focus returns
  * to the thumbnail on close. No photo renders no thumbnail.
+ * T91 layout: fields on top, then a one-line row (`Open full details` left,
+ * thumbnail right), Save changes last (inside the form, as before).
  */
 export function ItemEditSheet({ item, listId, open, onClose, onOpenDetails }: ItemEditSheetProps) {
   const updateItem = useUpdateItem(listId, item.id);
@@ -49,29 +51,6 @@ export function ItemEditSheet({ item, listId, open, onClose, onOpenDetails }: It
           className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl"
         >
           <DialogTitle className="text-sm font-medium text-gray-700">Edit {item.title}</DialogTitle>
-          {photoSrc ? (
-            <button
-              ref={thumbnailRef}
-              type="button"
-              onClick={() => setLightboxOpen(true)}
-              aria-label={`${item.title} photo, open full size`}
-              data-testid={`edit-sheet-photo-${item.id}`}
-              className="mt-3 block min-h-11 min-w-11 overflow-hidden rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-green-600"
-            >
-              <img src={photoSrc} alt={photoAlt} className="h-16 w-16 rounded-lg object-cover" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenDetails(item.id);
-            }}
-            data-testid={`full-details-${item.id}`}
-            className="mt-2 min-h-11 w-full rounded-lg px-3 text-sm font-medium text-blue-700 hover:bg-blue-50"
-          >
-            Open full details
-          </button>
           <div className="mt-3">
             <ItemEditForm
               item={item}
@@ -82,6 +61,40 @@ export function ItemEditSheet({ item, listId, open, onClose, onOpenDetails }: It
                 updateItem.mutate(patch, {
                   onSuccess: onClose,
                 })
+              }
+              midActions={
+                <div
+                  data-testid={`edit-sheet-actions-${item.id}`}
+                  className="flex items-center gap-3"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenDetails(item.id);
+                    }}
+                    data-testid={`full-details-${item.id}`}
+                    className="min-h-11 flex-1 rounded-lg px-3 text-left text-sm font-medium text-blue-700 hover:bg-blue-50"
+                  >
+                    Open full details
+                  </button>
+                  {photoSrc ? (
+                    <button
+                      ref={thumbnailRef}
+                      type="button"
+                      onClick={() => setLightboxOpen(true)}
+                      aria-label={`${item.title} photo, open full size`}
+                      data-testid={`edit-sheet-photo-${item.id}`}
+                      className="block min-h-11 min-w-11 shrink-0 overflow-hidden rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-green-600"
+                    >
+                      <img
+                        src={photoSrc}
+                        alt={photoAlt}
+                        className="h-16 w-16 rounded-lg object-cover"
+                      />
+                    </button>
+                  ) : null}
+                </div>
               }
             />
           </div>

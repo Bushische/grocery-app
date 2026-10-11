@@ -1,6 +1,7 @@
 import type { Category, Item, UpdateItemRequest } from "@grocery/shared";
 import { titleSchema } from "@grocery/shared";
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -25,13 +26,26 @@ export interface ItemEditFormProps {
   pending: boolean;
   error: string | null;
   onSave: (patch: UpdateItemRequest) => void;
+  /**
+   * Optional row rendered between the Quantity field and the error/submit
+   * block (T91: the edit bottom-sheet injects its "Open full details" plus
+   * photo-thumbnail row here so Save stays last). Omitted on the details page.
+   */
+  midActions?: ReactNode;
 }
 
 /**
  * The item's editable fields (docs/TASKS.md → T18): title, category select,
  * quantity. An empty quantity clears `qtyText` on the server (`qtyText: null`).
  */
-export function ItemEditForm({ item, categories, pending, error, onSave }: ItemEditFormProps) {
+export function ItemEditForm({
+  item,
+  categories,
+  pending,
+  error,
+  onSave,
+  midActions,
+}: ItemEditFormProps) {
   const {
     register,
     handleSubmit,
@@ -111,6 +125,8 @@ export function ItemEditForm({ item, categories, pending, error, onSave }: ItemE
           className={`mt-1 ${inputClassName}`}
         />
       </div>
+
+      {midActions}
 
       {error ? (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
