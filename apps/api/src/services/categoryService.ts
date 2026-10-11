@@ -126,6 +126,38 @@ export function updateCategory(db: Db, categoryId: string, patch: UpdateCategory
 }
 
 /**
+ * `POST /lists/:id/categories/reorder` (docs/API.md → Categories): validates
+ * that `orderedIds` is exactly the list's categories (foreign ids, unknown
+ * ids, duplicates, or a partial set → 400) and assigns `sortOrder = index`
+ * inside one transaction (docs/DATA_MODEL.md → Notes) — the same guards as
+ * the item reorder (itemService.reorderItems), minus the status dimension.
+ */
+export function reorderCategories(db: Db, listId: string, orderedIds: string[]): void {
+  db.transaction((tx) => {
+    const rows = tx
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.listId, listId))
+      .all();
+    const listIds = new Set(rows.map((row) => row.id));
+    const isPermutation =
+      orderedIds.length === listIds.size &&
+      new Set(orderedIds).size === orderedIds.length &&
+      orderedIds.every((id) => listIds.has(id));
+    if (!isPermutation) {
+      throw new FastifyHttpError(
+        400,
+        "VALIDATION_ERROR",
+        "orderedIds must contain every category of the list exactly once",
+      );
+    }
+    for (const [index, id] of orderedIds.entries()) {
+      db.update(categories).set({ sortOrder: index }).where(eq(categories.id, id)).run();
+    }
+  });
+}
+
+/**
  * Deletes a category unless items still reference it — SQLite enforces
  * `ON DELETE RESTRICT` (docs/DATA_MODEL.md), surfaced as 409 CONFLICT.
  * The default "Other" category is deliberately deletable while empty: it is

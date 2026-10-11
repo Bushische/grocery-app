@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   useCreateCategory,
   useDeleteCategory,
+  useReorderCategories,
   useUpdateCategory,
 } from "../hooks/use-category-mutations";
 import { CategoryCreateForm } from "./category-create-form";
@@ -37,6 +38,7 @@ export function CategoryListContainer({
   const update = useUpdateCategory(listId);
   const remove = useDeleteCategory(listId);
   const create = useCreateCategory(listId);
+  const reorder = useReorderCategories(listId);
 
   return (
     <div className="space-y-3">
@@ -66,12 +68,14 @@ export function CategoryListContainer({
         categories={categories}
         canEdit={canEdit}
         canDelete={canDelete}
+        canReorder={canEdit}
         editingId={editingId}
         confirmingDeleteId={confirmingDeleteId}
         updatePending={update.isPending}
         updateError={update.isError ? "Could not save the changes. Please try again." : null}
         deletePending={remove.isPending}
         deleteError={remove.isError ? "Could not delete the category." : null}
+        reorderError={reorder.isError ? "Could not save the new order. Please try again." : null}
         onStartEdit={(categoryId) => {
           setCreating(false);
           setEditingId(categoryId);
@@ -88,6 +92,7 @@ export function CategoryListContainer({
           })
         }
         onViewItems={onViewItems}
+        onReorder={(orderedIds) => reorder.mutate(orderedIds)}
       />
     </div>
   );

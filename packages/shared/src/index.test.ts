@@ -24,6 +24,7 @@ import {
   moveItemRequestSchema,
   priceObservationSchema,
   pricesResponseSchema,
+  reorderCategoriesRequestSchema,
   reorderRequestSchema,
   searchResponseSchema,
   searchResultSchema,
@@ -462,6 +463,20 @@ describe("reorderRequestSchema (T16.5)", () => {
     expect(reorderRequestSchema.safeParse({ status: "TO_BUY", orderedIds: [""] }).success).toBe(
       false,
     );
+  });
+});
+
+describe("reorderCategoriesRequestSchema (T94)", () => {
+  it("accepts a non-empty id list and carries no status field", () => {
+    expect(reorderCategoriesRequestSchema.parse({ orderedIds: ["c2", "c1"] })).toEqual({
+      orderedIds: ["c2", "c1"],
+    });
+  });
+
+  it("rejects empty lists, blank ids, and missing fields", () => {
+    expect(reorderCategoriesRequestSchema.safeParse({ orderedIds: [] }).success).toBe(false);
+    expect(reorderCategoriesRequestSchema.safeParse({ orderedIds: [""] }).success).toBe(false);
+    expect(reorderCategoriesRequestSchema.safeParse({}).success).toBe(false);
   });
 });
 

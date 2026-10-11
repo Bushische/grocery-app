@@ -662,3 +662,119 @@ describe("category title uniqueness per list (T37)", () => {
     expect(self.statusCode).toBe(200);
   });
 });
+
+describe("POST /lists/:id/categories/reorder (T94)", () => {
+  /** Direct row insert — the reorder endpoint only cares about list membership. */
+  function seedCategory(listId: string, title: string, sortOrder: number) {
+    return db
+      .insert(categories)
+      .values({ id: createId(), listId, title, color: "#3B82F6", sortOrder })
+      .returning()
+      .get();
+  }
+
+  function reorder(listId: string, orderedIds: string[], token = editorToken) {
+    return app.inject({
+      method: "POST",
+      url: `/lists/${listId}/categories/reorder`,
+      headers: bearer(token),
+      payload: { orderedIds },
+    });
+  }
+
+  it("reorders Dairy/Bakery, persists sortOrder = index, and refetch returns the new order", async () => {
+    const listId = await createScratchList("Category Reorder Happy");
+    const other = otherCategoryOf(listId);
+    const dairy = seedCategory(listId, "Dairy", 1);
+    const bakery = seedCategory(listId, "Bakery", 2);
+
+    const res = await reorder(listId, [bakery.id, dairy.id, other.id], ownerToken);
+    expect(res.statusCode).toBe(204);
+    expect(res.body).toBe("");
+
+    expect(categoryById(bakery.id)?.sortOrder).toBe(0);
+    expect(categoryById(dairy.id)?.sortOrder).toBe(1);
+    expect(categoryById(other.id)?.sortOrder).toBe(2);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/lists/${listId}/categories`,
+      headers: bearer(ownerToken),
+    });
+    expect((list.json() as Category[]).map((category) => category.title)).toEqual([
+      "Bakery",
+      "Dairy",
+      "Other",
+    ]);
+  });
+
+  it("rejects a foreign-list id and an unknown id with 400 and persists nothing", async () => {
+    const listId = await createScratchList("Category Reorder Foreign");
+    const other = otherCategoryOf(listId);
+    const foreign = otherCategoryOf(familyListId);
+
+    for (const orderedIds of [
+      [foreign.id, other.id],
+      ["no-such-category", other.id],
+    ]) {
+      const res = await reorder(listId, orderedIds);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+    expect(categoryById(other.id)?.sortOrder).toBe(0);
+    expect(categoryById(foreign.id)?.sortOrder).toBe(0);
+  });
+
+  it("rejects a partial set and duplicates with 400", async () => {
+    const listId = await createScratchList("Category Reorder Partial");
+    const other = otherCategoryOf(listId);
+    const dairy = seedCategory(listId, "Dairy", 1);
+
+    for (const orderedIds of [[dairy.id], [dairy.id, dairy.id, other.id]]) {
+      const res = await reorder(listId, orderedIds);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+    expect(categoryById(other.id)?.sortOrder).toBe(0);
+    expect(categoryById(dairy.id)?.sortOrder).toBe(1);
+  });
+
+  it("validates the request body with 400", async () => {
+    const listId = await createScratchList("Category Reorder Validation");
+    for (const payload of [{}, { orderedIds: [] }, { orderedIds: [""] }, { orderedIds: "c1" }]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/lists/${listId}/categories/reorder`,
+        headers: bearer(editorToken),
+        payload,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+  });
+
+  it("requires EDITOR: VIEWER and non-members get 403", async () => {
+    const listId = await createScratchList("Category Reorder Roles");
+    const other = otherCategoryOf(listId);
+    for (const token of [viewerToken, outsiderToken]) {
+      const res = await reorder(listId, [other.id], token);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("FORBIDDEN");
+    }
+    expect(categoryById(other.id)?.sortOrder).toBe(0);
+  });
+
+  it("rejects an unknown list with 404 and a missing token with 401", async () => {
+    const noList = await reorder("no-such-list", ["c1"]);
+    expect(noList.statusCode).toBe(404);
+    expect(noList.json().error.code).toBe("NOT_FOUND");
+
+    const noAuth = await app.inject({
+      method: "POST",
+      url: `/lists/${familyListId}/categories/reorder`,
+      payload: { orderedIds: [otherCategoryId] },
+    });
+    expect(noAuth.statusCode).toBe(401);
+    expect(noAuth.json().error.code).toBe("UNAUTHORIZED");
+  });
+});

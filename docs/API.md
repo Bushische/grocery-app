@@ -93,6 +93,8 @@ GET  /lists/:id/categories
 → 200 [{ "id": "c1", "title": "Dairy", "color": "#3B82F6", "sortOrder": 0, "itemCount": 4 }]
 
 POST   /lists/:id/categories  { "title": "Dairy", "color": "#3B82F6" }   → 201 (EDITOR+)
+POST   /lists/:id/categories/reorder  { "orderedIds": ["c2","c1"] }          → 204 (EDITOR+)
+  Validates all ids belong to the list; assigns sortOrder = index in one transaction.
 PATCH  /categories/:id        { "title"?, "color"? }                     → 200 (EDITOR+)
 DELETE /categories/:id                                                   → 204 (OWNER); 409 if items assigned
 GET    /categories/:id/items  → 200 items in this category (any status)

@@ -6,6 +6,7 @@ import {
   categorySchema,
   createCategoryRequestSchema,
   itemsResponseSchema,
+  reorderCategoriesRequestSchema,
   updateCategoryRequestSchema,
 } from "@grocery/shared";
 import { api } from "../../../lib/api";
@@ -28,6 +29,12 @@ export const categoriesApi = {
     ),
   /** DELETE /categories/:id → 204 (OWNER only); 409 while items still reference it. */
   remove: (categoryId: string) => api.del(`/categories/${categoryId}`),
+  /** POST /lists/:id/categories/reorder → 204; the server persists sortOrder = index. */
+  reorder: (listId: string, orderedIds: string[]): Promise<void> =>
+    api.postVoid(
+      `/lists/${listId}/categories/reorder`,
+      reorderCategoriesRequestSchema.parse({ orderedIds }),
+    ),
   /** GET /categories/:id/items — items in the category, any status. */
   items: (categoryId: string, signal?: AbortSignal): Promise<ItemsResponse> =>
     api.get(`/categories/${categoryId}/items`, itemsResponseSchema, signal),

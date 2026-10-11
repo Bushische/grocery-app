@@ -2,6 +2,7 @@ import {
   categorySchema,
   createCategoryRequestSchema,
   itemsResponseSchema,
+  reorderCategoriesRequestSchema,
   updateCategoryRequestSchema,
 } from "@grocery/shared";
 import type { FastifyInstance } from "fastify";
@@ -36,6 +37,17 @@ export async function categoryRoutes(app: FastifyInstance): Promise<void> {
       const body = createCategoryRequestSchema.parse(request.body);
       const category = categoryService.createCategory(db, id, body.title, body.color);
       return reply.status(201).send(categorySchema.parse(category));
+    },
+  );
+
+  app.post(
+    "/lists/:id/categories/reorder",
+    { preHandler: [requireAuth, requireListRole("EDITOR")] },
+    async (request, reply) => {
+      const { id } = listIdParamsSchema.parse(request.params);
+      const { orderedIds } = reorderCategoriesRequestSchema.parse(request.body);
+      categoryService.reorderCategories(db, id, orderedIds);
+      return reply.status(204).send();
     },
   );
 

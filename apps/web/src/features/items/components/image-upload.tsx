@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCachedImageSrc } from "../hooks/use-cached-image";
 import { resizeImage } from "../lib/resize-image";
 import { ImageLightbox } from "./image-lightbox";
 
@@ -55,6 +56,10 @@ export function ImageUpload({
     previewTriggerRef.current?.focus();
   }, []);
 
+  // T95: the stored photo resolves from the 7-day local cache when fresh
+  // (no network request); the pre-upload blob preview bypasses the cache.
+  const cachedStoredSrc = useCachedImageSrc(selected ? null : imageFilename);
+
   async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -88,11 +93,7 @@ export function ImageUpload({
       });
   }
 
-  const previewSrc = selected
-    ? selected.previewUrl
-    : imageFilename
-      ? `/static/${imageFilename}`
-      : null;
+  const previewSrc = selected ? selected.previewUrl : cachedStoredSrc;
 
   return (
     <section aria-label="Item photo" className="space-y-3">

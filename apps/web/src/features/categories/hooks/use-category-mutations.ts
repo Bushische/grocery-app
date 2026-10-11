@@ -27,6 +27,25 @@ export function removeCategoryFromList(categories: Category[], categoryId: strin
 }
 
 /**
+ * Applies a persisted category order to the cached categories array of one
+ * list (sortOrder = index; ids the server has but the client missed keep
+ * their relative order at the end) — the optimistic update of the reorder
+ * mutation below.
+ */
+export function reorderCategoriesInList(categories: Category[], orderedIds: string[]): Category[] {
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const ordered: Category[] = [];
+  for (const id of orderedIds) {
+    const category = byId.get(id);
+    if (category) {
+      ordered.push({ ...category, sortOrder: ordered.length });
+      byId.delete(id);
+    }
+  }
+  return [...ordered, ...byId.values()];
+}
+
+/**
  * Re-colors/renames the embedded category copy on every cached item of the
  * category — this is what makes the main screen's color bars update instantly
  * (docs/TASKS.md → T19 Definition of Done).
@@ -105,6 +124,49 @@ export function useUpdateCategory(listId: string) {
       void queryClient.invalidateQueries({
         queryKey: categoryItemsQueryKey(variables.categoryId),
       });
+    },
+  });
+}
+
+/**
+ * POST /lists/:id/categories/reorder (docs/API.md → Categories) with an
+ * optimistic reorder of the `["categories", listId]` cache + rollback. The
+ * `["items", listId]` cache (main-screen grouping) and the category picker
+ * (which reads the same categories query) are invalidated on settle so both
+ * follow the new order after the refetch.
+ */
+export function useReorderCategories(listId: string) {
+  const queryClient = useQueryClient();
+  const categoriesKey = categoriesQueryKey(listId);
+  const itemsKey = itemsQueryKey(listId);
+  return useMutation({
+    mutationFn: (orderedIds: string[]) => categoriesApi.reorder(listId, orderedIds),
+    onMutate: async (orderedIds) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: categoriesKey }),
+        queryClient.cancelQueries({ queryKey: itemsKey }),
+      ]);
+      const previousCategories = queryClient.getQueryData<Category[]>(categoriesKey);
+      const previousItems = queryClient.getQueryData<ItemsQueryData>(itemsKey);
+      if (previousCategories) {
+        queryClient.setQueryData(
+          categoriesKey,
+          reorderCategoriesInList(previousCategories, orderedIds),
+        );
+      }
+      return { previousCategories, previousItems };
+    },
+    onError: (_error, _orderedIds, context) => {
+      if (context?.previousCategories) {
+        queryClient.setQueryData(categoriesKey, context.previousCategories);
+      }
+      if (context?.previousItems) {
+        queryClient.setQueryData(itemsKey, context.previousItems);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: categoriesKey });
+      void queryClient.invalidateQueries({ queryKey: itemsKey });
     },
   });
 }

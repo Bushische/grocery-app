@@ -2,6 +2,7 @@ import type { Item } from "@grocery/shared";
 import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
 import { useCallback, useRef, useState } from "react";
 import { useCategories } from "../../lists/hooks/use-categories";
+import { useCachedImageSrc } from "../hooks/use-cached-image";
 import { useUpdateItem } from "../hooks/use-item-detail-mutations";
 import { ImageLightbox } from "./image-lightbox";
 import { ItemEditForm } from "./item-edit-form";
@@ -33,7 +34,7 @@ export function ItemEditSheet({ item, listId, open, onClose, onOpenDetails }: It
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const thumbnailRef = useRef<HTMLButtonElement | null>(null);
 
-  const photoSrc = item.imageFilename != null ? `/static/${item.imageFilename}` : null;
+  const photoSrc = useCachedImageSrc(item.imageFilename);
   const photoAlt = `${item.title} (stored)`;
 
   const closeLightbox = useCallback(() => {
