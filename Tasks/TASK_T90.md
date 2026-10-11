@@ -1,0 +1,6 @@
+# T90 — Edit bottom-sheet shows photo thumbnail with full-screen view
+- **Goal:** Swipe-left edit sheet shows the item photo as a small thumbnail when attached, and tapping it opens the full-screen image.
+- **Inputs:** `item-edit-sheet.tsx` (no photo today), `item-row.tsx` swipe-left open path, `image-upload.tsx` T46 `Lightbox` (backdrop/Escape/✕/focus-return, `/static/<filename>` URL), `item-row-swipe.test.tsx` + `image-upload.test.tsx` patterns.
+- **Outputs:** `ItemEditSheet` renders a thumbnail button (`src=/static/<imageFilename>`, e.g. `edit-sheet-photo-<id>`) only when `item.imageFilename != null`; tap opens the full-screen lightbox (extract `Lightbox` from `image-upload.tsx` to `image-lightbox.tsx` and reuse in both places, same testids/behavior); null photo renders no thumbnail.
+- **Definition of Done:** Component tests pin thumbnail shown with correct `src`/`alt` vs omitted when null; tap opens lightbox (`image-lightbox`, backdrop `bg-black/80`, `role=dialog` fullscreen, `lightbox-image` same src); close via ✕/Escape/backdrop restores focus to thumbnail, photo tap keeps it open; existing `ImageUpload` lightbox tests unchanged green; full gate green.
+- **Dependencies:** T89.
