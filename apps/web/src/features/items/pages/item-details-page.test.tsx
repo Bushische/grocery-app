@@ -116,8 +116,11 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
 
     expect(await screen.findByDisplayValue("Milk")).toBeInTheDocument();
     expect(screen.getByDisplayValue("2x")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("c1");
-    expect(screen.getByRole("option", { name: "Dairy" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("Other");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Category" }));
+    expect(await screen.findByTestId("category-combobox-list")).toBeInTheDocument();
+    expect(screen.getByTestId("category-option-c2")).toHaveTextContent("Dairy");
     expect(screen.getByTestId("item-image")).toHaveAttribute("src", "/static/i1-abc.webp");
     // T80: the 5 newest observations render as compact rows (no chart).
     expect(screen.getByTestId("recent-price")).toHaveTextContent("1.99");
@@ -147,7 +150,8 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     const title = await screen.findByLabelText("Title");
     await user.clear(title);
     await user.type(title, "Organic Milk");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Category" }), "c2");
+    await user.click(screen.getByRole("combobox", { name: "Category" }));
+    await user.click(await screen.findByTestId("category-option-c2"));
     await user.clear(screen.getByLabelText("Quantity (optional)"));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -159,7 +163,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
       }),
     );
     expect(await screen.findByDisplayValue("Organic Milk")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("c2");
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("Dairy");
   });
 
   it("adds a price (DoD): POST /items/:id/prices adds a row to the recent list", async () => {
@@ -378,11 +382,13 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     mock.stub();
     renderPage("/items/i1");
 
-    // The category is editable (select, not read-only text) and the URL
+    // The category is editable (combobox, not read-only text) and the URL
     // upgrades to the canonical nested route.
     const select = await screen.findByRole("combobox", { name: "Category" });
-    expect(select).toHaveValue("c1");
-    expect(screen.getByRole("option", { name: "Dairy" })).toBeInTheDocument();
+    expect(select).toHaveValue("Other");
+    const user = userEvent.setup();
+    await user.click(select);
+    expect(await screen.findByTestId("category-option-c2")).toHaveTextContent("Dairy");
     expect(await screen.findByTestId("pathname")).toHaveTextContent("/lists/l1/items/i1");
   });
 
@@ -405,7 +411,7 @@ describe("ItemDetailsPage (docs/TASKS.md → T18)", () => {
     );
 
     const select = await screen.findByRole("combobox", { name: "Category" });
-    expect(select).toHaveValue("c1");
+    expect(select).toHaveValue("Other");
     expect(await screen.findByTestId("pathname")).toHaveTextContent("/lists/l1/items/i1");
     expect(mock.callsTo("GET", "/api/search")).toHaveLength(0);
   });

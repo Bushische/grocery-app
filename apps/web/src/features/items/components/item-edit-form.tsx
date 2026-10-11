@@ -3,8 +3,9 @@ import { titleSchema } from "@grocery/shared";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
+import { CategoryCombobox } from "./category-select";
 
 const inputClassName =
   "block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base text-gray-900 " +
@@ -56,6 +57,7 @@ export function ItemEditForm({
 }: ItemEditFormProps) {
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isDirty },
@@ -119,17 +121,18 @@ export function ItemEditForm({
           Category
         </label>
         {categories ? (
-          <select
-            id="item-category"
-            {...register("categoryId")}
-            className={`mt-1 ${inputClassName}`}
-          >
-            {categoryOptions.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.title}
-              </option>
-            ))}
-          </select>
+          <Controller
+            name="categoryId"
+            control={control}
+            render={({ field }) => (
+              <CategoryCombobox
+                categories={categoryOptions}
+                value={field.value}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+              />
+            )}
+          />
         ) : (
           <p className="mt-1 flex min-h-11 items-center rounded-lg bg-gray-100 px-3 text-base text-gray-700">
             {item.category.title}
